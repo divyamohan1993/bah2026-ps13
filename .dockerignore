@@ -1,0 +1,43 @@
+# Keep the docker build context slim + reproducible (and never ship secrets).
+# The image only needs the netra/ package, ui/, corpus/, and requirements-core.txt.
+
+# VCS + CI
+.git
+.github
+.gitignore
+
+# Python caches / build artifacts
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+
+# Virtualenvs
+.venv/
+.venv-*/
+venv/
+*.venv
+
+# Offline bundles / wheelhouses (built by scripts/bundle.sh — never in context;
+# a wheelhouse intended for an offline build is mounted explicitly as /wheels)
+wheelhouse/
+*.tar.gz
+
+# Local secrets / env (only .env.example is tracked)
+.env
+.env.*
+!.env.example
+
+# Large optional runtime assets (LLM weights mounted at runtime, not built in)
+models/
+
+# Editor / OS cruft
+.DS_Store
+.idea/
+.vscode/

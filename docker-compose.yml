@@ -1,0 +1,335 @@
+# NETRA — top-level offline stack (PS-13 air-gapped predictive NOC copilot).
+# ===========================================================================
+# A coherent, self-contained, OFFLINE service mesh that runs end-to-end on a
+# plain CPU box with no internet. It composes the real NETRA services:
+#
+#   core (always up):
+#     * nats              — NATS JetStream telemetry + alert bus
+#     * nats-init         — one-shot JetStream stream/consumer provisioning
+#     * victoriametrics   — time-series history (PromQL/MetricsQL)
+#     * vmagent           — scrape + on-disk-buffered remote_write to VM
+#     * grafana           — provisioned NOC dashboards (mounts grafana/)
+#     * netra-app         — the FastAPI API + offline operator UI
+#
+#   optional profiles (core stays light without them):
+#     * --profile sim       — gnmic + telegraf live-sim collectors
+#     * --profile llm       — a local llama-server (CPU GGUF, no egress)
+#     * --profile vectordb  — qdrant (RAG vector DB)
+#
+# AIR-GAP MODEL (security/networks.md, ARCHITECTURE.md §8/§9.1):
+#   * Every service attaches to `airgap_net`, an `internal: true` bridge with NO
+#     gateway and NO NAT to the host's external interface — the mesh has no route
+#     to the internet *by construction*, before any firewall is consulted.
+#   * The app / analytics / copilot / RAG services carry the `x-netra-hardening`
+#     anchor (cap_drop ALL, no-new-privileges, read-only rootfs, offline env).
+#     Compose anchors are FILE-LOCAL, so the anchor below is copied from
+#     security/compose.security.yml (it cannot be inherited across `-f` files).
+#   * UI / API / Grafana are the ONLY published ports, and they bind to
+#     127.0.0.1 only, so traffic arrives over `lo` and nothing is exposed on the
+#     external interface (security/networks.md §4).
+#
+# HARDEN FURTHER (recommended for the appliance) — layer the security fragment
+# to add the always-on Falco egress monitor and the LLM seccomp profile:
+#
+#   docker compose -f docker-compose.yml -f security/compose.security.yml up -d
+#
+# (and apply the host firewall first:
+#    sudo nft -f security/nftables.conf && sudo security/docker-user.sh)
+#
+# Image pins are compatible-release tags; the offline bundle (scripts/bundle.sh)
+# replaces them with SHA-256-pinned digests via `docker save`.
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Reusable hardening anchor — COPIED from security/compose.security.yml because
+# YAML anchors (x-*) do not cross `-f` compose-file boundaries (see
+# security/networks.md "Compose anchor caveat"). Merge into a service with
+# `<<: *netra-hardening`.
+# ---------------------------------------------------------------------------
+x-netra-hardening: &netra-hardening
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  read_only: true
+  tmpfs:
+    - /tmp
+  networks:
+    - airgap_net
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+  environment:
+    HF_HUB_OFFLINE: "1"
+    TRANSFORMERS_OFFLINE: "1"
+    HF_HUB_DISABLE_TELEMETRY: "1"
+    DO_NOT_TRACK: "1"
+    GRADIO_ANALYTICS_ENABLED: "False"
+    PIP_NO_INDEX: "1"
+
+# Stricter anchor for the LLM: everything above PLUS the seccomp profile that
+# denies socket/connect (security/seccomp-llm.json). Used by the `llm` profile.
+x-netra-llm-hardening: &netra-llm-hardening
+  <<: *netra-hardening
+  security_opt:
+    - no-new-privileges:true
+    - seccomp=./security/seccomp-llm.json
+
+networks:
+  # THE air-gap network. `internal: true` => Docker creates the bridge with NO
+  # gateway and NO MASQUERADE/NAT, so attached containers cannot reach the
+  # internet by construction. The subnet sits inside 172.16/12 so the host
+  # nftables rules treat intra-mesh traffic as allowed while dropping everything
+  # else (security/networks.md §2). This stanza is identical to the one in
+  # security/compose.security.yml so layering that file merges cleanly.
+  airgap_net:
+    name: netra_airgap_net
+    driver: bridge
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.name: br-airgap
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.31.255.0/24
+
+volumes:
+  nats_jetstream:       # JetStream persistent streams (file storage)
+  vm_data:              # VictoriaMetrics on-disk TSDB
+  vmagent_buffer:       # vmagent on-disk remote_write buffer (outage-safe)
+  grafana_data:         # Grafana sqlite + state
+  qdrant_data:          # RAG vector store (vectordb profile)
+
+services:
+
+  # =========================================================================
+  # CORE — telemetry bus + history (always up)
+  # =========================================================================
+
+  # --- NATS JetStream — telemetry + alert bus ------------------------------
+  nats:
+    <<: *netra-hardening
+    image: nats:2.10-alpine
+    container_name: netra-nats
+    command:
+      - "-js"                              # enable JetStream
+      - "-sd"
+      - "/data/jetstream"                  # persistent store dir
+      - "-m"
+      - "8222"                             # monitoring endpoint (internal only)
+    # JetStream needs a writable store dir; read_only rootfs + this volume is fine.
+    volumes:
+      - nats_jetstream:/data/jetstream
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8222/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # --- one-shot: provision JetStream streams/consumers ---------------------
+  nats-init:
+    image: natsio/nats-box:0.14.5
+    container_name: netra-nats-init
+    depends_on:
+      nats:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/scripts/nats-streams.sh"]
+    environment:
+      NATS_URL: "nats://nats:4222"
+    volumes:
+      - ./telemetry/nats-streams.sh:/scripts/nats-streams.sh:ro
+    networks: [airgap_net]
+    restart: "no"
+
+  # --- VictoriaMetrics — time-series history -------------------------------
+  victoriametrics:
+    <<: *netra-hardening
+    image: victoriametrics/victoria-metrics:v1.97.1
+    container_name: netra-victoriametrics
+    command:
+      - "-storageDataPath=/victoria-metrics-data"
+      - "-retentionPeriod=3"               # months
+      - "-httpListenAddr=:8428"
+      - "-dedup.minScrapeInterval=1s"
+      - "-memory.allowedPercent=60"
+      - "-usagecollector.disable=true"     # AIR-GAP: no anonymous usage stats
+    volumes:
+      - vm_data:/victoria-metrics-data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8428/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+
+  # --- vmagent — scrape + on-disk buffered remote_write --------------------
+  vmagent:
+    <<: *netra-hardening
+    image: victoriametrics/vmagent:v1.97.1
+    container_name: netra-vmagent
+    depends_on:
+      victoriametrics:
+        condition: service_healthy
+    command:
+      - "-remoteWrite.url=http://victoriametrics:8428/api/v1/write"
+      - "-remoteWrite.tmpDataPath=/vmagent-buffer"
+      - "-remoteWrite.maxDiskUsagePerURL=2GB"
+      - "-promscrape.config=/etc/victoriametrics/scrape.yml"
+      - "-memory.allowedPercent=40"
+    volumes:
+      - vmagent_buffer:/vmagent-buffer
+      - ./telemetry/scrape.yml:/etc/victoriametrics/scrape.yml:ro
+
+  # =========================================================================
+  # CORE — operator console
+  # =========================================================================
+
+  # --- Grafana — provisioned NOC dashboards (mounts grafana/) --------------
+  grafana:
+    <<: *netra-hardening
+    image: grafana/grafana:11.1.0
+    container_name: netra-grafana
+    depends_on:
+      victoriametrics:
+        condition: service_healthy
+    # grafana.ini binds 127.0.0.1 INSIDE the container; override to 0.0.0.0 so
+    # the container listens on its bridge IP. Host-side we still publish ONLY to
+    # 127.0.0.1 below, so nothing is exposed externally. Phone-home/update checks
+    # stay off (grafana.ini + these env mirrors).
+    environment:
+      GF_SERVER_HTTP_ADDR: "0.0.0.0"
+      GF_VM_URL: "http://victoriametrics:8428"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      HF_HUB_OFFLINE: "1"
+      DO_NOT_TRACK: "1"
+    # Grafana writes sqlite/state, so it is NOT read_only; everything else from
+    # the anchor (cap_drop, no-new-privileges, internal net, log rotation) applies.
+    read_only: false
+    volumes:
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"              # NOC wall — loopback only
+
+  # --- netra-app — FastAPI API + offline operator UI -----------------------
+  netra-app:
+    <<: *netra-hardening
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: netra/app:latest
+    container_name: netra-app
+    depends_on:
+      nats:
+        condition: service_healthy
+      victoriametrics:
+        condition: service_healthy
+    # CMD in the Dockerfile binds uvicorn to 0.0.0.0:8000; the host publish below
+    # restricts exposure to loopback. Provider defaults to the in-process
+    # DemoProvider (no other service needed); set NETRA_API_PROVIDER=live to wire
+    # the real engines (and llama-server/qdrant via their profiles).
+    environment:
+      NETRA_API_PROVIDER: "demo"
+      NETRA_NATS_URL: "nats://nats:4222"
+      NETRA_VM_URL: "http://victoriametrics:8428"
+      # llama-server / qdrant endpoints for the optional profiles (LiveProvider).
+      NETRA_LLAMA_URL: "http://llama-server:8080"
+      NETRA_QDRANT_URL: "http://qdrant:6333"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      DO_NOT_TRACK: "1"
+      PIP_NO_INDEX: "1"
+    ports:
+      - "127.0.0.1:8000:8000"              # API + UI — loopback only
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=3).status==200 else sys.exit(1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # =========================================================================
+  # OPTIONAL: --profile sim  — live-sim telemetry collectors
+  # (the SYNTHETIC source needs NEITHER; the demo/eval path reads datagen
+  #  directly — telemetry/README.md "CPU-only / no-sim path")
+  # =========================================================================
+
+  gnmic:
+    image: ghcr.io/openconfig/gnmic:0.38.2
+    container_name: netra-gnmic
+    depends_on:
+      nats:
+        condition: service_healthy
+    command: ["subscribe", "--config", "/app/gnmic.yaml"]
+    volumes:
+      - ./telemetry/gnmic.yaml:/app/gnmic.yaml:ro
+    networks: [airgap_net]
+    restart: unless-stopped
+    profiles: ["sim"]
+
+  telegraf:
+    image: telegraf:1.30
+    container_name: netra-telegraf
+    depends_on:
+      nats:
+        condition: service_healthy
+      victoriametrics:
+        condition: service_healthy
+    volumes:
+      - ./telemetry/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+    networks: [airgap_net]
+    restart: unless-stopped
+    profiles: ["sim"]
+
+  # =========================================================================
+  # OPTIONAL: --profile llm  — local offline LLM (CPU GGUF, zero egress)
+  # When absent, the copilot uses the deterministic template fallback that emits
+  # the SAME CopilotResponse schema (graceful degradation, ARCHITECTURE.md §5.2).
+  # =========================================================================
+
+  llama-server:
+    <<: *netra-llm-hardening               # stricter: + seccomp-llm.json
+    image: ghcr.io/ggerganov/llama.cpp:server
+    container_name: netra-llama-server
+    # GGUF weights are mounted read-only from ./models; no weights => skip this
+    # profile and the copilot template fallback answers Q1/Q2/Q3 unchanged.
+    command:
+      - "-m"
+      - "/models/model.gguf"
+      - "--host"
+      - "0.0.0.0"
+      - "--port"
+      - "8080"
+      - "-c"
+      - "8192"
+    volumes:
+      - ./models:/models:ro
+      - ./security/seccomp-llm.json:/seccomp-llm.json:ro
+    profiles: ["llm"]
+
+  # =========================================================================
+  # OPTIONAL: --profile vectordb  — Qdrant RAG vector DB
+  # When absent, RAG degrades to in-process keyword retrieval over the bundled
+  # corpus/ (ARCHITECTURE.md §5.2).
+  # =========================================================================
+
+  qdrant:
+    <<: *netra-hardening
+    image: qdrant/qdrant:v1.9.2
+    container_name: netra-qdrant
+    environment:
+      QDRANT__TELEMETRY_DISABLED: "true"   # AIR-GAP: no anonymized usage reports
+      HF_HUB_OFFLINE: "1"
+      DO_NOT_TRACK: "1"
+    # Qdrant writes its storage dir, so not read_only; rest of the anchor applies.
+    read_only: false
+    volumes:
+      - qdrant_data:/qdrant/storage
+    profiles: ["vectordb"]

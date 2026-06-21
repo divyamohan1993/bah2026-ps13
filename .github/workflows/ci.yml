@@ -1,0 +1,88 @@
+# NETRA — Continuous Integration (PS-13 air-gapped predictive NOC copilot).
+# ==========================================================================
+# Three jobs run on every push / pull request. They install the CORE tier ONLY
+# (requirements-core.txt) — no torch, no LLM, no GPU — because the end-to-end
+# pipeline (synthetic source -> streaming -> ensemble -> fusion/correlation/risk
+# -> template-fallback copilot -> FastAPI/UI) runs and is fully testable on the
+# light tier alone.
+#
+#   * lint          — ruff (advisory: surfaces findings without blocking CI)
+#   * test          — pytest on Python 3.11, air-gap in LENIENT mode (xfail on
+#                     reach, since GitHub runners are not air-gapped)
+#   * license-gate  — proves the permissive offline bundle is copyleft-free
+#                     (scripts/license_inventory.py --fail-on-copyleft over the
+#                     CORE tier)
+
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------- #
+  # Lint — ruff. Advisory (continue-on-error) so style findings surface in
+  # the logs without blocking the build; the suite + license gate are the
+  # hard gates.
+  # ---------------------------------------------------------------------- #
+  lint:
+    name: lint (ruff)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install ruff
+        run: python -m pip install --upgrade pip ruff
+      - name: ruff check
+        run: ruff check --output-format=github .
+
+  # ---------------------------------------------------------------------- #
+  # Test — the pytest suite on the CORE tier. Air-gap LENIENT (do NOT set
+  # NETRA_AIRGAP_STRICT): on a connected runner the egress-attempt tests
+  # xfail instead of failing, exactly as documented.
+  # ---------------------------------------------------------------------- #
+  test:
+    name: test (pytest, core tier)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install core tier + test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-core.txt
+          pip install pytest pytest-asyncio httpx
+      - name: Run pytest (air-gap LENIENT)
+        run: PYTHONPATH=. pytest tests/ -q
+
+  # ---------------------------------------------------------------------- #
+  # License gate — the permissive air-gap bundle must be copyleft-free. Runs
+  # the offline inventory over the CORE tier with --no-installed (curated SPDX
+  # map only, deterministic) so the gate reflects exactly the shipped bundle.
+  # Pure-stdlib: no install needed.
+  # ---------------------------------------------------------------------- #
+  license-gate:
+    name: license-gate (permissive bundle)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify the core bundle is copyleft-free
+        run: python scripts/license_inventory.py -r requirements-core.txt --no-installed --fail-on-copyleft

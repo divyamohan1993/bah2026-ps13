@@ -26,7 +26,7 @@ The NOC needs to answer three questions *before* impact, with **zero dependency 
 
 NETRA is a fully offline NOC copilot that **forecasts degradation with actionable lead time**, **explains its reasoning in grounded natural language**, and **recommends approval-gated remediation** — all inside the air-gapped boundary, verifiably.
 
-- **Predict, don't react.** A 50+ method predictive ensemble (forecasting + anomaly + change-point + graph) detects *precursor conditions*, not threshold breaches, and computes a calibrated **time-to-impact**.
+- **Predict, don't react.** A **43-method deployed ensemble** (forecasting + anomaly + change-point + graph + survival; 50+ catalogued) detects *precursor conditions*, not threshold breaches, and computes a calibrated **time-to-impact**.
 - **Explain, don't hallucinate.** SHAP attributions + graph root-cause analysis feed a quantized local LLM whose output is **schema-constrained, cited, and grounded** only in internal artifacts (topology, runbooks, past incidents) — with an offline faithfulness gate and an abstain flag.
 - **Act, with a human in the loop.** The copilot retrieves the matching playbook and proposes ordered, rollback-capable steps that require operator approval.
 
@@ -45,7 +45,7 @@ The heavy stack (Containerlab, GPU deep models, the quantized LLM, the RAG vecto
 flowchart LR
   SRC["TelemetrySource<br/>(sim OR synthetic, labeled)"]
   STREAM["O(1) streaming features<br/>River / stumpy / DDSketch"]
-  ENS["Predictive ensemble (50+)<br/>forecast + anomaly + EVT fusion"]
+  ENS["Predictive ensemble (43 deployed)<br/>forecast + anomaly + EVT fusion"]
   RCA["Correlation / RCA / risk<br/>NetworkX graph + SHAP + blast-radius"]
   COP["Offline copilot<br/>Qwen2.5-7B + hybrid RAG<br/>(template fallback)"]
   UI["FastAPI + UI + Grafana<br/>topology / risk timeline / 3-answer card"]
@@ -57,7 +57,7 @@ flowchart LR
 |---|---|---|
 | 1 — Simulation | Multi-site SD-WAN/MPLS lab + labeled fault injection | Containerlab + netlab + FRR/SR Linux + strongSwan |
 | 2 — Telemetry | Collect + bus + **O(1) streaming features** | gnmic/Telegraf → NATS JetStream → River/stumpy → VictoriaMetrics |
-| 3 — Predictive | 50+ method ensemble → calibrated risk + time-to-impact | River/pyod/statsmodels/ruptures + LightGBM + survival + conformal |
+| 3 — Predictive | 43-method deployed ensemble (50+ catalogued) → calibrated risk + time-to-impact | River/pyod/statsmodels/ruptures + LightGBM + survival + conformal |
 | 4 — Correlation | Graph RCA + blast-radius + prioritised incidents | NetworkX + Granger + SHAP + Platt calibration |
 | 5 — Copilot | Grounded NL answers + playbooks | llama.cpp Qwen2.5-7B (GBNF) + bge-m3/Qdrant RAG + HHEM gate |
 | 6 — Air-gap | Zero-egress enforcement + **verifiable** proof | nftables + Falco + pytest conformance + offline bundle |
@@ -69,52 +69,88 @@ Full design and rationale: **[ARCHITECTURE.md](ARCHITECTURE.md)**. The seven dee
 ```
 ARCHITECTURE.md          Master architecture (start here)
 docs/BUILD_PLAN.md       Workstream ownership map (who builds what)
+docs/DEMO.md             How to run the demo + what each scenario shows
+docs/EVALUATION.md       Rubric → concrete evidence map
 netra/contracts/         Shared Pydantic v2 data contracts (the stable interface)
-netra/                   The product: datagen · streaming · analytics · copilot · api
+netra/                   The product: datagen · streaming · analytics · copilot · api · pipeline
 sim/ telemetry/          Phase 1 lab + Phase 2 collector configs
 corpus/                  Sample runbooks / incidents / topology for RAG
 ui/ grafana/             Operator console + dashboards
 security/ tests/airgap/  Air-gap enforcement + conformance test
-scripts/                 Offline bundling (docker save, pinned wheels, SBOM)
+scripts/                 Offline bundling (docker save, pinned wheels, SBOM) + demo.py
+docker-compose.yml       Offline stack (NATS · VictoriaMetrics · Grafana · netra-app; profiles: sim/llm/vectordb)
+docker/Dockerfile        Slim CPU image for netra-app (core tier)
+Makefile                 setup · demo · test · up · airgap-verify · bundle …
 research/                The 7 deep-research reports
 ```
 
-## Quickstart (placeholder — the integrator finalises commands)
+## Quickstart
 
-> NETRA is designed to be installed and run with **no internet**. The commands
-> below are the intended shape; the integrator finalises them once the build
-> workstreams land.
+> Everything below runs **fully offline on a plain CPU box** — no GPU, no
+> internet, no sim. The CPU-only demo/eval path needs only the light **core**
+> tier (`requirements-core.txt`). The heavy stack (LLM, deep models, RAG vector
+> DB, Containerlab) upgrades quality but is never required.
 
 ```bash
-# 1. Install the light core tier (the only tier required for the CPU-only demo)
-python -m venv .venv && . .venv/bin/activate
-pip install -r requirements-core.txt          # offline: --no-index --find-links=wheelhouse
+# 1. Install the core tier into a venv (the only tier the demo needs).
+make setup
+#    equivalently:
+#    python -m venv .venv && . .venv/bin/activate && pip install -r requirements-core.txt
+#    offline build host: pip install --no-index --find-links=wheelhouse -r requirements-core.txt
 
-# 2. Verify the shared contracts import (no heavy deps, just pydantic)
-python -c "import netra.contracts; print('contracts OK')"
+# 2. Run the end-to-end demo over all four validation scenarios (CPU-only, offline).
+#    synthetic telemetry → O(1) streaming features → 43-method ensemble →
+#    fusion/correlation/risk → template-fallback copilot → Q1/Q2/Q3 + lead time.
+make demo
+#    one scenario:  PYTHONPATH=. python scripts/demo.py --scenario A
+#    or the wrapper: scripts/run_demo.sh
 
-# 3. Run the end-to-end demo against the SYNTHETIC source (no sim, no GPU, no internet)
-#    -> synthetic telemetry → streaming features → ensemble → risk → template copilot → UI
-#    (entrypoint provided by the API/datagen workstreams)
+# 3. Run the test suite (229 tests; air-gap tests run LENIENT off the appliance).
+make test
 
-# 4. (optional) Bring up the full offline stack
-docker compose up -d                           # internal-only network
+# 4. (optional) Bring up the full offline stack on the internal-only network.
+make up                       # NATS + VictoriaMetrics + Grafana + netra-app
+#    → UI/API at http://127.0.0.1:8000   ·   Grafana at http://127.0.0.1:3000
+#    hardened appliance (adds Falco egress monitor + LLM seccomp):
+#    make up-secure            # docker compose -f docker-compose.yml -f security/compose.security.yml up -d
 
-# 5. Prove the air-gap — passes only if every egress attempt is blocked
-pytest -q tests/airgap
+# 5. Prove the air-gap — active egress conformance + passive evidence.
+make airgap-verify            # scripts/airgap_verify.sh  (pytest tests/airgap + nftables/conntrack/Falco)
 ```
 
-For the full offline bundle (`docker save` images + hash-pinned wheels + SBOM +
-cosign), see `scripts/` and [ARCHITECTURE.md §8–§9](ARCHITECTURE.md).
+See **[docs/DEMO.md](docs/DEMO.md)** for the full demo walkthrough and
+**[docs/EVALUATION.md](docs/EVALUATION.md)** for the rubric-to-evidence map. For
+the offline install bundle (`docker save` images + hash-pinned wheels + SBOM +
+copyleft-free license report), see `make bundle` / `make install-offline` and
+[ARCHITECTURE.md §8–§9](ARCHITECTURE.md).
+
+## Demo results — 4/4 scenarios detected with lead time
+
+End-to-end, fully offline, CPU-only, template-fallback copilot (`make demo`).
+Each scenario is detected **before** the labeled fault, with a calibrated lead
+time and the correct predicted issue (Q1/Q2/Q3 answered for every one):
+
+| Scenario (`ScenarioId`) | Predicted issue | Detected? | Lead time | Top method |
+|---|---|---|---|---|
+| **A — Progressive congestion** (`A_congestion`) | `interface_congestion` | ✅ | **2.4 min** | EWMA/Page-Hinkley drift |
+| **B — BGP route-flap cascade** (`B_bgp_flap`) | `bgp_route_flap` | ✅ | **1.5 min** | route-flap churn + change-point |
+| **C — Intermittent tunnel degradation** (`C_tunnel_degradation`) | `tunnel_degradation` | ✅ | **1.8 min** | Half-Space-Trees / COPOD |
+| **D — Controller policy drift** (`D_policy_drift`) | `policy_drift` | ✅ | **0.2 min** | BOCPD/PELT step change |
+
+**Result: 4/4 detected with lead time** — fully offline, CPU-only, no GPU, no
+model. The same run prints the per-scenario Q1/Q2/Q3 operator card and a summary
+table; pass `--json out.json` for a machine-readable summary.
 
 ## Evaluation alignment
 
+Full rubric-to-evidence map with file/line citations: **[docs/EVALUATION.md](docs/EVALUATION.md)**.
+
 | Dimension | Weight | How NETRA scores |
 |---|---|---|
-| Technical Merit | 35% | Precursor forecasting + survival + conformal bands → early, calibrated lead time; 50+ method cross-verified ensemble with EVT thresholds; reproducible ground-truth scoring |
-| Copilot Effectiveness | 35% | Schema-constrained, cited, grounded answers over internal artifacts only; offline faithfulness gate + abstain; deterministic fallback always answers Q1/Q2/Q3 |
-| Security & Offline Compliance | 20% | Defense-in-depth zero-egress + always-on monitor + **runnable conformance test**; telemetry-free software; hermetic hash-pinned supply chain |
-| Documentation Quality | 10% | This README + master architecture + research dossiers + self-documenting typed contracts + unambiguous build plan |
+| Technical Merit | 35% | Precursor forecasting + survival + conformal bands → early, calibrated lead time; 43-method cross-verified ensemble (50+ catalogued, `netra/analytics/fusion/registry.py`) with EVT thresholds; 4/4 detection with measured lead times; reproducible ground-truth scoring |
+| Copilot Effectiveness | 35% | Schema-constrained, cited, grounded `CopilotResponse` over internal artifacts only; GBNF grammar; offline faithfulness gate + abstain; deterministic template fallback always answers Q1/Q2/Q3 |
+| Security & Offline Compliance | 20% | Defense-in-depth zero-egress (nftables FORWARD/DOCKER-USER + `internal: true`) + always-on Falco monitor + **runnable pytest conformance test**; copyleft-free permissive bundle; hash-verified offline installer |
+| Documentation Quality | 10% | This README + [ARCHITECTURE.md](ARCHITECTURE.md) + [docs/DEMO.md](docs/DEMO.md) + [docs/EVALUATION.md](docs/EVALUATION.md) + 7 research dossiers + self-documenting typed contracts |
 
 ## License
 
