@@ -1,0 +1,57 @@
+{
+  "playbook_id": "PB-CONGESTION-001",
+  "title": "Relieve progressive interface congestion on a hub-spoke uplink",
+  "issue_type": "interface_congestion",
+  "trigger_signature": "Monotonic if_util_pct slope + if_out_discards creep + latency/jitter drift on a hub uplink, below loss threshold.",
+  "source_ref": "RB-CONGESTION-001",
+  "actions": [
+    {
+      "step": 1,
+      "description": "Collect interface and egress-queue statistics on the congested uplink.",
+      "command_or_guidance": "show interface eth1 | include rate|drops ; show policy-map interface eth1",
+      "requires_approval": false,
+      "urgency": "immediate",
+      "rollback": null,
+      "verification": "Statistics returned; confirm utilisation slope and rising if_out_discards.",
+      "runbook_ref": "RB-CONGESTION-001",
+      "approval_state": "auto_ok",
+      "safety_class": "read_only"
+    },
+    {
+      "step": 2,
+      "description": "Identify the top-talker flows driving the utilisation ramp from NetFlow.",
+      "command_or_guidance": "show flow monitor NETRA cache aggregate ipv4 source/destination sort counter bytes top 10",
+      "requires_approval": false,
+      "urgency": "immediate",
+      "rollback": null,
+      "verification": "Top application classes / flows identified for the trailing 5 minutes.",
+      "runbook_ref": "RB-CONGESTION-001",
+      "approval_state": "auto_ok",
+      "safety_class": "read_only"
+    },
+    {
+      "step": 3,
+      "description": "Raise QoS priority for the business/voice class on the congested interface to protect latency-sensitive traffic.",
+      "command_or_guidance": "napalm load_merge: policy-map QOS-UPLINK / class BUSINESS / priority percent 40",
+      "requires_approval": true,
+      "urgency": "immediate",
+      "rollback": "napalm rollback to previous QOS-UPLINK policy-map",
+      "verification": "Business/voice latency holds while utilisation climbs; no business-class drops.",
+      "runbook_ref": "RB-CONGESTION-001",
+      "approval_state": "proposed",
+      "safety_class": "config_change"
+    },
+    {
+      "step": 4,
+      "description": "Shift bulk/scavenger traffic to the alternate SD-WAN path to relieve the primary uplink.",
+      "command_or_guidance": "controller: set app-route policy BULK next-hop secondary-transport",
+      "requires_approval": true,
+      "urgency": "soon",
+      "rollback": "controller: revert BULK app-route policy to primary-transport",
+      "verification": "Primary uplink utilisation drops; alternate path remains within SLA.",
+      "runbook_ref": "RB-CONGESTION-001",
+      "approval_state": "proposed",
+      "safety_class": "service_impacting"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "incident_id": "INC-2026-0007",
+  "issue_type": "interface_congestion",
+  "scenario_id": "A_congestion",
+  "title": "HQ/hub uplink saturation during quarterly-close backups",
+  "site": "hub1",
+  "device": "pe-hub1",
+  "entity_id": "hub1:pe-hub1:PE:eth1",
+  "occurred_at": "2026-03-31T18:40:00Z",
+  "detected_lead_time_minutes": 7,
+  "symptom": "if_util_pct on pe-hub1 eth1 climbed monotonically from 55% to 92% over ~8 minutes; if_out_discards began creeping and business-class latency drifted up before any loss was reported.",
+  "root_cause": "A quarterly-close bulk backup job from the hub overlapped peak business traffic on the single primary uplink, with no QoS protection for the business class and bulk traffic pinned to the primary transport.",
+  "contributing_signals": [
+    "if_util_pct rising ~4%/min",
+    "if_out_discards creeping from zero",
+    "latency_ms and jitter_ms drifting upward"
+  ],
+  "resolution": "Raised QoS priority for the business class on eth1 and shifted the bulk backup to the secondary SD-WAN transport; utilisation slope flattened and discards stopped within 3 minutes.",
+  "playbook_used": "PB-CONGESTION-001",
+  "timeline": [
+    {"t": "18:40Z", "event": "Drift detectors (EWMA/Page-Hinkley) fire on if_util_pct slope while below threshold."},
+    {"t": "18:43Z", "event": "Top-talker NetFlow identifies the bulk backup flow."},
+    {"t": "18:45Z", "event": "QoS change approved and pushed via NAPALM."},
+    {"t": "18:47Z", "event": "Bulk traffic shifted to secondary transport; utilisation recovers."}
+  ]
+}

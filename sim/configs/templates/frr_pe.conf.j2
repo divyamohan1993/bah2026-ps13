@@ -1,0 +1,78 @@
+{#-
+  FRR PE render template (Jinja2) — Workstream 1.
+  Renders a Provider-Edge frr.conf from a node spec dict. Used by
+  sim/configs/render_configs.py to generate the per-PE configs deterministically
+  instead of hand-writing each one. The concrete checked-in examples
+  (e.g. configs/frr/pe-dc2/frr.conf) are the canonical reference output.
+
+  Expected context: node = {
+    name, router_id, isis_net, sid_index,
+    core_iface: {name, desc, ip}, rr_loopback,
+    vrfs: [ {name, rd, rt, ce_iface: {name, desc, ip}} ],
+  }
+-#}
+! FRRouting config — Provider Edge {{ node.name }} (rendered)
+frr version 10.3
+frr defaults traditional
+hostname {{ node.name }}
+log syslog informational
+service integrated-vtysh-config
+!
+{% for vrf in node.vrfs %}
+vrf {{ vrf.name }}
+ vni 0
+exit-vrf
+{% endfor %}
+!
+interface lo
+ ip address {{ node.router_id }}/32
+ ip router isis CORE
+ isis passive
+exit
+interface {{ node.core_iface.name }}
+ description {{ node.core_iface.desc }}
+ ip address {{ node.core_iface.ip }}
+ ip router isis CORE
+ isis network point-to-point
+ mpls enable
+exit
+{% for vrf in node.vrfs %}
+interface {{ vrf.ce_iface.name }}
+ description {{ vrf.ce_iface.desc }}
+ ip vrf forwarding {{ vrf.name }}
+ ip address {{ vrf.ce_iface.ip }}
+exit
+{% endfor %}
+!
+router isis CORE
+ is-type level-2-only
+ net {{ node.isis_net }}
+ metric-style wide
+ segment-routing on
+ segment-routing global-block 16000 23999
+ segment-routing prefix {{ node.router_id }}/32 index {{ node.sid_index }}
+exit
+!
+router bgp 65000
+ bgp router-id {{ node.router_id }}
+ no bgp default ipv4-unicast
+ neighbor {{ node.rr_loopback }} remote-as 65000
+ neighbor {{ node.rr_loopback }} update-source lo
+ address-family ipv4 vpn
+  neighbor {{ node.rr_loopback }} activate
+  neighbor {{ node.rr_loopback }} send-community both
+ exit-address-family
+exit
+{% for vrf in node.vrfs %}
+router bgp 65000 vrf {{ vrf.name }}
+ bgp router-id {{ node.router_id }}
+ address-family ipv4 unicast
+  redistribute connected
+  rd vpn export {{ vrf.rd }}
+  rt vpn both {{ vrf.rt }}
+  label vpn export auto
+  export vpn
+  import vpn
+ exit-address-family
+exit
+{% endfor %}

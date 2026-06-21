@@ -1,0 +1,180 @@
+{
+  "annotations": { "list": [] },
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [
+    { "title": "NETRA Operator Console", "type": "link", "url": "http://127.0.0.1:8000/", "targetBlank": true }
+  ],
+  "liveNow": true,
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "tags": ["netra", "risk", "predictive", "airgap"],
+  "templating": { "list": [] },
+  "time": { "from": "now-30m", "to": "now" },
+  "title": "NETRA — Risk & Air-Gap Overview",
+  "uid": "netra-risk-overview",
+  "version": 1,
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Top entity risk",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red", "value": 0.7 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "victoriametrics" }, "expr": "max(netra_fused_risk_score)" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Open incidents (P1/P2/P3)",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "victoriametrics" }, "expr": "sum(netra_incident_open)", "legendFormat": "open" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Min time-to-impact (min)",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 5, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "m",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "green", "value": 15 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "victoriametrics" }, "expr": "min(netra_time_to_impact_seconds) / 60" }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Egress: blocked attempts (air-gap proof)",
+      "description": "From the nftables EGRESS-DROP counter (security/nftables.conf). A flat 0-successful / N-blocked line is the live proof of verifiable zero outbound dependency.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 5, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 }
+            ]
+          }
+        }
+      },
+      "options": { "colorMode": "background", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "victoriametrics" }, "expr": "airgap_egress_blocked_total", "legendFormat": "blocked" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Risk over time (rises BEFORE impact = lead time)",
+      "description": "Fused, calibrated risk per entity. The dashed line is the action threshold; risk crossing it ahead of the SLA breach is the predictive lead time NETRA buys the NOC.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 9, "w": 16, "x": 0, "y": 5 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 12,
+            "gradientMode": "scheme",
+            "thresholdsStyle": { "mode": "dashed" }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red", "value": 0.7 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "victoriametrics" }, "expr": "netra_fused_risk_score", "legendFormat": "{{entity_id}}" }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Predicted issues & confidence",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 5 },
+      "fieldConfig": { "defaults": { "unit": "percentunit" } },
+      "options": { "showHeader": true },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "netra_fused_risk_calibrated_confidence",
+          "legendFormat": "{{entity_id}} / {{predicted_issue}}",
+          "format": "table",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Detector-family agreement",
+      "description": "Fraction of independent detector families firing — the robustness signal the 50+ method ensemble buys.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 14 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1, "custom": { "drawStyle": "line", "fillOpacity": 8 } } },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "victoriametrics" }, "expr": "netra_fused_risk_agreement", "legendFormat": "{{entity_id}}" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Outbound connections to non-RFC1918 (must stay 0)",
+      "description": "From Falco / conntrack exporter. Any non-zero value is an AIR-GAP VIOLATION.",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 14 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "custom": { "drawStyle": "line", "fillOpacity": 10 },
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 1 } ] }
+        }
+      },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "victoriametrics" }, "expr": "airgap_external_established_connections", "legendFormat": "external ESTABLISHED" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,180 @@
+{
+  "annotations": { "list": [] },
+  "editable": false,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "liveNow": true,
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": ["netra", "telemetry", "noc"],
+  "templating": {
+    "list": [
+      {
+        "name": "entity",
+        "label": "Entity",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+        "query": "label_values(if_util_pct, entity_id)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "time": { "from": "now-30m", "to": "now" },
+  "timezone": "",
+  "title": "NETRA — Telemetry Wall",
+  "uid": "netra-telemetry",
+  "version": 1,
+  "panels": [
+    {
+      "type": "row",
+      "title": "Interface health",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Interface utilisation %",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 70 },
+              { "color": "red", "value": 90 }
+            ]
+          },
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "thresholdsStyle": { "mode": "line" } }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "if_util_pct{entity_id=~\"$entity\"}",
+          "legendFormat": "{{entity_id}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency / Jitter (ms)",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "fieldConfig": {
+        "defaults": { "unit": "ms", "custom": { "drawStyle": "line", "fillOpacity": 8 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "latency_ms{entity_id=~\"$entity\"}",
+          "legendFormat": "latency {{entity_id}}"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "jitter_ms{entity_id=~\"$entity\"}",
+          "legendFormat": "jitter {{entity_id}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Packet loss % / Output discards",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "custom": { "drawStyle": "line", "fillOpacity": 8 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "loss_pct{entity_id=~\"$entity\"}",
+          "legendFormat": "loss {{entity_id}}"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "rate(if_out_discards{entity_id=~\"$entity\"}[1m])",
+          "legendFormat": "discards/s {{entity_id}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Routing & overlay",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 17 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "BGP churn & flap penalty",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 6 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "bgp_update_rate{entity_id=~\"$entity\"}",
+          "legendFormat": "updates {{entity_id}}"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "bgp_flap_penalty{entity_id=~\"$entity\"}",
+          "legendFormat": "flap penalty {{entity_id}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Tunnel loss / jitter / rekey",
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
+      "fieldConfig": {
+        "defaults": { "unit": "short", "custom": { "drawStyle": "line", "fillOpacity": 6 } },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "tunnel_loss_pct{entity_id=~\"$entity\"}",
+          "legendFormat": "loss% {{entity_id}}"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "tunnel_jitter_ms{entity_id=~\"$entity\"}",
+          "legendFormat": "jitter {{entity_id}}"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "expr": "tunnel_rekey_interval_s{entity_id=~\"$entity\"}",
+          "legendFormat": "rekey s {{entity_id}}"
+        }
+      ]
+    }
+  ]
+}

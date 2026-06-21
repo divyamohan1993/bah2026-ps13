@@ -1,0 +1,57 @@
+{
+  "playbook_id": "PB-TUNNEL-001",
+  "title": "Restore a degraded IPSec/MPLS overlay tunnel",
+  "issue_type": "tunnel_degradation",
+  "trigger_signature": "Intermittent tunnel_loss_pct/tunnel_jitter_ms spikes, irregular tunnel_rekey_interval_s, BFD flaps on an overlay tunnel.",
+  "source_ref": "RB-TUNNEL-001",
+  "actions": [
+    {
+      "step": 1,
+      "description": "Collect tunnel, LSP, BFD statistics and the IPSec rekey log.",
+      "command_or_guidance": "show interface tunnel-hub ; show mpls lsp ; show bfd session ; show crypto ipsec sa rekey-history",
+      "requires_approval": false,
+      "urgency": "immediate",
+      "rollback": null,
+      "verification": "Loss/jitter bursts and rekey events captured with timestamps.",
+      "runbook_ref": "RB-TUNNEL-001",
+      "approval_state": "auto_ok",
+      "safety_class": "read_only"
+    },
+    {
+      "step": 2,
+      "description": "Localise the faulty LSP / underlay hop by correlating loss bursts with a specific P-router or path.",
+      "command_or_guidance": "correlate tunnel loss timestamps with per-hop LSP stats over the topology graph",
+      "requires_approval": false,
+      "urgency": "immediate",
+      "rollback": null,
+      "verification": "Degraded underlay hop or LSP identified.",
+      "runbook_ref": "RB-TUNNEL-001",
+      "approval_state": "auto_ok",
+      "safety_class": "read_only"
+    },
+    {
+      "step": 3,
+      "description": "Reroute the LSP onto a healthy TE path that avoids the degraded underlay hop.",
+      "command_or_guidance": "napalm load_merge: mpls traffic-eng / tunnel-te1 path-option 1 explicit name HEALTHY-PATH",
+      "requires_approval": true,
+      "urgency": "immediate",
+      "rollback": "napalm: restore the original LSP path-option",
+      "verification": "tunnel_loss_pct and tunnel_jitter_ms recover to baseline and hold for 5 minutes.",
+      "runbook_ref": "RB-TUNNEL-001",
+      "approval_state": "proposed",
+      "safety_class": "config_change"
+    },
+    {
+      "step": 4,
+      "description": "Fail the tunnel over to the backup transport if the primary underlay cannot be made healthy quickly.",
+      "command_or_guidance": "controller: set overlay tunnel-hub preferred-transport backup",
+      "requires_approval": true,
+      "urgency": "soon",
+      "rollback": "controller: fail back to primary transport once underlay is healthy",
+      "verification": "Overlay SLA restored on the backup transport; no loss/jitter.",
+      "runbook_ref": "RB-TUNNEL-001",
+      "approval_state": "proposed",
+      "safety_class": "service_impacting"
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "playbook_id": "PB-POLICYDRIFT-001",
+  "title": "Revert controller-induced policy drift to last-known-good",
+  "issue_type": "policy_drift",
+  "trigger_signature": "Step increase in config_drift_score across multiple sites simultaneously with no hardware alarm; traced to a controller commit.",
+  "source_ref": "RB-POLICYDRIFT-001",
+  "actions": [
+    {
+      "step": 1,
+      "description": "Diff running configuration vs golden across all affected sites to confirm drift is configuration, not a physical fault.",
+      "command_or_guidance": "napalm compare_config golden ; controller: show config-diff vs last-known-good",
+      "requires_approval": false,
+      "urgency": "immediate",
+      "rollback": null,
+      "verification": "Config diff confirms simultaneous multi-site drift; no hardware alarm present.",
+      "runbook_ref": "RB-POLICYDRIFT-001",
+      "approval_state": "auto_ok",
+      "safety_class": "read_only"
+    },
+    {
+      "step": 2,
+      "description": "Attribute the drift to a controller push/commit (commit id, approver, timestamp) from the audit log.",
+      "command_or_guidance": "controller: show audit-log commits last 1h ; correlate commit time with metric change onset",
+      "requires_approval": false,
+      "urgency": "immediate",
+      "rollback": null,
+      "verification": "Offending commit id and approver identified; onset aligns with the commit.",
+      "runbook_ref": "RB-POLICYDRIFT-001",
+      "approval_state": "auto_ok",
+      "safety_class": "read_only"
+    },
+    {
+      "step": 3,
+      "description": "Revert to the last-known-good policy on the controller (roll back the offending commit).",
+      "command_or_guidance": "controller: policy rollback --to last-known-good --commit <offending-commit-id>",
+      "requires_approval": true,
+      "urgency": "immediate",
+      "rollback": "controller: re-apply the offending commit if the revert causes regressions, then escalate",
+      "verification": "config_drift_score returns to zero across all sites; affected metrics normalise.",
+      "runbook_ref": "RB-POLICYDRIFT-001",
+      "approval_state": "proposed",
+      "safety_class": "config_change"
+    },
+    {
+      "step": 4,
+      "description": "Re-push the golden configuration to the affected sites if a full controller revert is too broad, keeping an audit record of the approver.",
+      "command_or_guidance": "napalm replace_config golden --sites hub1,br1,br2,br3",
+      "requires_approval": true,
+      "urgency": "soon",
+      "rollback": "napalm rollback to the pre-push checkpoint",
+      "verification": "Intent and forwarding paths match golden; path_asymmetry clears.",
+      "runbook_ref": "RB-POLICYDRIFT-001",
+      "approval_state": "proposed",
+      "safety_class": "service_impacting"
+    }
+  ]
+}

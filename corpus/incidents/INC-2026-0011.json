@@ -1,0 +1,26 @@
+{
+  "incident_id": "INC-2026-0011",
+  "issue_type": "bgp_route_flap",
+  "scenario_id": "B_bgp_flap",
+  "title": "Route-reflector VPNv4 session flap after a core link fault",
+  "site": "rr1",
+  "device": "rr1",
+  "entity_id": "rr1:rr1:RR:peer-pe-dc1",
+  "occurred_at": "2026-04-12T09:15:00Z",
+  "detected_lead_time_minutes": 4,
+  "symptom": "Bursty bgp_update_rate and bgp_withdraw_rate on the rr1<->pe-dc1 VPNv4 session, rising bgp_flap_penalty, adjacency_flap_count incrementing, and an OSPF SPF storm in the core.",
+  "root_cause": "An intermittently failing core link caused the underlay next-hop to flap, which oscillated the BGP best-path A->B->A and propagated withdraw/re-advertise churn through the route reflector to all PEs.",
+  "contributing_signals": [
+    "bgp_flap_penalty accumulating toward suppress limit",
+    "bgp_update_rate bursts well above baseline",
+    "ospf_spf_rate rising as the IGP reconverged repeatedly"
+  ],
+  "resolution": "Enabled BGP route-flap damping on the affected VPNv4 address-family and installed a static fallback for the critical corporate prefix; churn fell to baseline and the table stabilised within 5 minutes. The failing core link was then repaired and damping relaxed.",
+  "playbook_used": "PB-BGPFLAP-001",
+  "timeline": [
+    {"t": "09:15Z", "event": "Route-flap penalty + CUSUM/Page-Hinkley fire on update-rate; graph correlation flags rr1 as origin."},
+    {"t": "09:17Z", "event": "Granger ranking identifies pe-dc1 peer / corporate prefix as the flapping source."},
+    {"t": "09:18Z", "event": "Damping + static fallback approved and applied via NAPALM."},
+    {"t": "09:20Z", "event": "Update/withdraw rates back to baseline; routing stable."}
+  ]
+}

@@ -1,0 +1,17 @@
+# Grafana dashboard provider (as-code). Loads every dashboard JSON from the
+# mounted dashboards directory at startup — no manual import, no internet.
+apiVersion: 1
+
+providers:
+  - name: NETRA
+    orgId: 1
+    folder: NETRA
+    type: file
+    disableDeletion: false
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      # Path inside the Grafana container where grafana/dashboards is mounted
+      # (see ARCHITECTURE.md §9.1 — the integrator mounts it read-only).
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: false
