@@ -1,0 +1,120 @@
+# NETRA — Falco runtime egress monitor (air-gap layer: always-on detection).
+# ===========================================================================
+# Falco watches kernel syscalls in real time and fires CRITICAL the instant
+# ANY NETRA container attempts an *outbound* connection to a non-intra-lab
+# address. This is the passive, always-on proof that complements the active
+# pytest conformance suite (tests/airgap) and the nftables/DOCKER-USER DROP
+# counters: even if a drop somehow failed, the *attempt* itself is detected,
+# logged, and alertable (ARCHITECTURE.md §8, research 07 §B7.1).
+#
+# Install (air-gapped): copy into Falco's rules dir and reference it, e.g.
+#   sudo cp security/falco-egress.yaml /etc/falco/rules.d/falco-egress.yaml
+#   sudo systemctl restart falco
+# or run the falco container (see security/compose.security.yml) with this file
+# mounted at /etc/falco/rules.d/falco-egress.yaml.
+#
+# Tuning: edit the `netra_intra_lab` macro to match your bridge/LAN CIDRs.
+# Standards: NIST SP 800-53 SC-7 (boundary protection), SI-4 (system monitoring).
+#
+# Schema: a standard Falco rules file (lists -> macros -> rules). Compatible
+# with Falco 0.36+ (modern `falco_*` fields). Validate offline with:
+#   falco --validate security/falco-egress.yaml
+
+# Bump the priority of this rules file so it is loaded after the defaults and
+# can override/extend them deterministically.
+- required_engine_version: 0.31.0
+
+# ---------------------------------------------------------------------------
+# Lists: intra-lab CIDRs and the NETRA container image/name prefixes.
+# ---------------------------------------------------------------------------
+- list: netra_intra_lab_cidrs
+  items:
+    - '"127.0.0.0/8"'      # loopback
+    - '"10.0.0.0/8"'       # RFC1918 (LAN telemetry + some Docker pools)
+    - '"172.16.0.0/12"'    # RFC1918 (Docker bridge pools incl. airgap_net)
+    - '"192.168.0.0/16"'   # RFC1918 (LAN telemetry)
+    - '"169.254.0.0/16"'   # link-local
+
+# Container name/image prefixes that make up the NETRA app mesh. Used to scope
+# the rule so only OUR containers are policed (avoids noise from host daemons).
+- list: netra_app_containers
+  items:
+    - netra-api
+    - netra-ui
+    - netra-analytics
+    - netra-streaming
+    - netra-datagen
+    - llama-server
+    - qdrant
+    - grafana
+    - victoriametrics
+    - nats
+
+# ---------------------------------------------------------------------------
+# Macros.
+# ---------------------------------------------------------------------------
+
+# An *outbound* connection syscall (TCP connect, or first UDP sendto/sendmsg on
+# an unconnected socket), on an IPv4/IPv6 socket, that actually left or is
+# leaving the host (rawres >= 0 or EINPROGRESS for non-blocking connect).
+- macro: netra_outbound
+  condition: >
+    (((evt.type = connect and evt.dir = <) or
+      (evt.type in (sendto, sendmsg) and evt.dir = < and
+       fd.l4proto != tcp and fd.connected = false and fd.name_changed = true)) and
+     (fd.typechar = 4 or fd.typechar = 6) and
+     (fd.ip != "0.0.0.0" and fd.net != "127.0.0.0/8") and
+     (evt.rawres >= 0 or evt.res = EINPROGRESS))
+
+# The remote endpoint is OUTSIDE the allowed intra-lab ranges => external.
+- macro: netra_dest_external
+  condition: not fd.snet in (netra_intra_lab_cidrs)
+
+# The syscall came from one of our app containers.
+- macro: netra_is_app_container
+  condition: container.name in (netra_app_containers)
+
+# ---------------------------------------------------------------------------
+# Rule: ANY external outbound attempt from a NETRA container is an air-gap
+# violation. Priority CRITICAL so it is impossible to miss in the demo.
+# ---------------------------------------------------------------------------
+- rule: NETRA Air-Gap Egress Violation
+  desc: >
+    A NETRA application container attempted an OUTBOUND network connection to a
+    destination outside the allowed intra-lab ranges. In an air-gapped
+    deployment this must NEVER happen; it indicates a misconfiguration, a
+    supply-chain implant, or an exfiltration attempt. Cross-check against the
+    nftables EGRESS-DROP counter and the tests/airgap conformance suite.
+  condition: >
+    netra_outbound and netra_is_app_container and netra_dest_external
+  output: >
+    AIRGAP VIOLATION outbound connection attempt
+    (container=%container.name image=%container.image.repository
+     proc=%proc.name pid=%proc.pid cmd=%proc.cmdline
+     dstip=%fd.sip dstport=%fd.sport proto=%fd.l4proto
+     user=%user.name)
+  priority: CRITICAL
+  tags: [network, airgap, mitre_exfiltration, NIST_SC-7]
+  source: syscall
+
+# ---------------------------------------------------------------------------
+# Companion (lower priority): external outbound from ANY container on the host,
+# even if it is not in the NETRA app list. Catches a rogue sidecar / unexpected
+# image. Disabled-by-default noise control: WARNING, not CRITICAL.
+# ---------------------------------------------------------------------------
+- rule: NETRA Unexpected Container Egress
+  desc: >
+    A container that is NOT part of the known NETRA app mesh attempted an
+    external outbound connection. Likely benign on a shared host, but on the
+    locked appliance every container should be air-gapped — investigate.
+  condition: >
+    netra_outbound and container and netra_dest_external
+    and not netra_is_app_container
+  output: >
+    Unexpected container egress
+    (container=%container.name image=%container.image.repository
+     proc=%proc.name dstip=%fd.sip dstport=%fd.sport proto=%fd.l4proto)
+  priority: WARNING
+  tags: [network, airgap]
+  source: syscall
+  enabled: true
