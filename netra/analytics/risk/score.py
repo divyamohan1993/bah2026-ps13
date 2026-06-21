@@ -25,12 +25,10 @@ Returns a :class:`RiskFactors` breakdown (auditable) plus the combined score.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, field
 
-from netra.contracts import BlastRadius, FusedRisk, Incident, TimeToImpact
-
 from netra.analytics.correlation.blast_radius import blast_urgency_factor
+from netra.contracts import BlastRadius, FusedRisk, Incident, TimeToImpact
 
 # Per-factor exponents let the operator tune the relative pull of each term while
 # keeping the product form. All default to 1.0 (equal weighting). A factor with a

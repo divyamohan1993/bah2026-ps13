@@ -28,7 +28,7 @@ from __future__ import annotations
 import math
 import random
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from netra.contracts import (
     AffectedScope,
@@ -52,8 +52,6 @@ from netra.contracts import (
     Urgency,
 )
 from netra.contracts.enums import ApprovalState, ScenarioId
-
-UTC = timezone.utc
 
 
 def _load_reference_topology():

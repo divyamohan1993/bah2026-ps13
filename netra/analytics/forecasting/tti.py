@@ -66,7 +66,7 @@ def _interp_cross_time(times: np.ndarray, values: np.ndarray,
         return 0.0
     prev_t = 0.0
     prev_v = start_value if start_value is not None else float(values[0])
-    for t, v in zip(times, values):
+    for t, v in zip(times, values, strict=False):
         if _crosses(v, threshold, direction):
             # linear interpolation between (prev_t, prev_v) and (t, v)
             if v == prev_v:
@@ -200,7 +200,6 @@ class TheilSenTTI:
 
         slope, intercept, lo_slope, hi_slope = theilslopes(series, t)
         current = float(series[-1])
-        last_t = float(series.size - 1)
 
         def cross_seconds(s: float) -> float | None:
             if abs(s) < 1e-12:

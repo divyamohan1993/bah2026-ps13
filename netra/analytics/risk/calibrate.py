@@ -26,8 +26,8 @@ from dataclasses import dataclass
 import numpy as np
 
 try:  # sklearn is a core dep; guard so the module imports on a bare env.
-    from sklearn.linear_model import LogisticRegression
     from sklearn.isotonic import IsotonicRegression
+    from sklearn.linear_model import LogisticRegression
 
     _HAVE_SKLEARN = True
 except Exception:  # pragma: no cover
@@ -70,7 +70,7 @@ class RiskCalibrator:
         self._iso_y: np.ndarray | None = None
 
     # -- fit ----------------------------------------------------------------
-    def fit(self, scores: Sequence[float], labels: Sequence[int]) -> "RiskCalibrator":
+    def fit(self, scores: Sequence[float], labels: Sequence[int]) -> RiskCalibrator:
         """Fit the calibrator on raw scores and binary outcome labels (0/1)."""
         s = np.asarray(scores, dtype=float).reshape(-1)
         y = np.asarray(labels, dtype=float).reshape(-1)

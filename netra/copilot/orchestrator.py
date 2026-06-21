@@ -27,7 +27,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from netra.contracts import (
-    AffectedScope,
     BlastRadius,
     ContributingSignal,
     CopilotAction,

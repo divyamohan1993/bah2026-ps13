@@ -17,7 +17,7 @@ Run: ``pytest -q tests/test_copilot.py``.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -43,7 +43,6 @@ from netra.contracts import (
     TimeToImpact,
     Urgency,
 )
-
 from netra.copilot import AnalyticsContext, Copilot
 from netra.copilot.grounding import (
     FaithfulnessScorer,
@@ -62,11 +61,10 @@ from netra.copilot.llm import (
 )
 from netra.copilot.rag import Chunk, HybridRetriever, TopologyGraph, build_retriever
 
-
 # --------------------------------------------------------------------------- #
 # Fixtures: analytics inputs (contract objects only) for scenario A.          #
 # --------------------------------------------------------------------------- #
-NOW = datetime.now(timezone.utc)
+NOW = datetime.now(UTC)
 ENT_HUB = EntityRef(
     entity_id="hub1:pe-hub1:PE:eth1",
     site="hub1",

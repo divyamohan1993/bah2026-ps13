@@ -20,9 +20,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
-from netra.contracts import Incident, Severity
-
 from netra.analytics.correlation.graph import TopologyGraph
+from netra.contracts import Incident, Severity
 
 from .calibrate import RiskCalibrator
 from .score import RiskFactors, RiskWeights, compute_risk_factors, geometric_mean_score

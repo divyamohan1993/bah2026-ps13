@@ -24,7 +24,7 @@ from collections import deque
 
 import numpy as np
 
-from netra.contracts import DetectorFamily, EntityRef
+from netra.contracts import DetectorFamily
 
 from .base import Detector
 

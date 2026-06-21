@@ -53,7 +53,8 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from typing import Deque, Iterable, Protocol, runtime_checkable
+from collections.abc import Iterable
+from typing import Protocol, runtime_checkable
 
 # --- core deps (always present in the CORE tier) ---------------------------
 from river import stats
@@ -170,7 +171,6 @@ class CountMinSketch:
     def _hashes(self, key: str) -> Iterable[int]:
         # Two independent hashes combined into ``depth`` via the Kirsch-Mitzenmacher
         # double-hashing trick: h_i = h1 + i*h2 (mod width). O(depth), constant.
-        data = key.encode("utf-8")
         h1 = hash((self._seed, key)) & 0xFFFFFFFF
         h2 = (hash((self._seed ^ 0x9E3779B9, key)) & 0xFFFFFFFF) | 1
         for i in range(self.depth):
@@ -318,7 +318,7 @@ class MatrixProfileDiscord:
         self.window = int(window)
         # stumpi needs >= 2*m seed points to be meaningful; default warmup 2*m+1.
         self.warmup = int(warmup) if warmup is not None else 2 * self.window + 1
-        self._seed: Deque[float] = deque(maxlen=self.warmup)
+        self._seed: deque[float] = deque(maxlen=self.warmup)
         self._stream = None
         self._available = _HAS_STUMPY and _HAS_NUMPY
 
@@ -592,7 +592,7 @@ class AdjacencyFlapCount:
 
     def __init__(self, window_seconds: float = 300.0, maxlen: int = 1024) -> None:
         self.window_seconds = window_seconds
-        self._events: Deque[float] = deque(maxlen=maxlen)
+        self._events: deque[float] = deque(maxlen=maxlen)
         self._count = 0
 
     def flap(self, ts: float) -> int:

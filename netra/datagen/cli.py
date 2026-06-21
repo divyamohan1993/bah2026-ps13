@@ -36,7 +36,7 @@ import argparse
 import json
 import sys
 from collections.abc import Iterable, Iterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from netra.contracts import ScenarioId, ScenarioLabel
@@ -149,10 +149,10 @@ def _parse_scenarios(values: list[str] | None) -> tuple[ScenarioId, ...]:
 
 def _parse_start(value: str | None) -> datetime:
     if not value:
-        return datetime(2026, 6, 20, 8, 0, tzinfo=timezone.utc)
+        return datetime(2026, 6, 20, 8, 0, tzinfo=UTC)
     ts = datetime.fromisoformat(value)
     if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
+        ts = ts.replace(tzinfo=UTC)
     return ts
 
 

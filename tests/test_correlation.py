@@ -17,23 +17,9 @@ exercised. Construct contract types directly; never import Builder-3 modules.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
-
-from netra.contracts import (
-    AnomalyScore,
-    DetectorFamily,
-    Direction,
-    EntityRef,
-    FlowRecord,
-    FusedRisk,
-    Incident,
-    IssueType,
-    MethodWeight,
-    Severity,
-    TimeToImpact,
-)
 
 from netra.analytics.correlation import (
     TopologyGraph,
@@ -60,8 +46,21 @@ from netra.analytics.risk import (
     triage_queue,
 )
 from netra.analytics.risk.score import geometric_mean_score, time_to_impact_urgency
+from netra.contracts import (
+    AnomalyScore,
+    DetectorFamily,
+    Direction,
+    EntityRef,
+    FlowRecord,
+    FusedRisk,
+    Incident,
+    IssueType,
+    MethodWeight,
+    Severity,
+    TimeToImpact,
+)
 
-T0 = datetime(2026, 6, 20, 12, 0, 0, tzinfo=timezone.utc)
+T0 = datetime(2026, 6, 20, 12, 0, 0, tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------

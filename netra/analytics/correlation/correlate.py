@@ -31,13 +31,12 @@ import uuid
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import networkx as nx
 
 from netra.contracts import (
     AnomalyScore,
-    BlastRadius,
     ContributingSignal,
     Direction,
     EntityRef,
@@ -51,6 +50,7 @@ from netra.contracts import (
 from .blast_radius import compute_blast_radius
 from .graph import TopologyGraph
 from .rca import build_hypothesis, rank_root_causes
+
 
 # ---------------------------------------------------------------------------
 # Event abstraction — a thin, uniform view over the heterogeneous inputs so the
@@ -282,8 +282,8 @@ def _group_peak(g: IncidentGroup) -> float:
 # ---------------------------------------------------------------------------
 def _as_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def _series_for_group(group: IncidentGroup) -> dict[str, list[float]]:
@@ -347,7 +347,7 @@ def assemble_incident(
     if not group.events:
         raise ValueError("cannot assemble an incident from an empty group")
 
-    created = _as_utc(now) if now else datetime.now(timezone.utc)
+    created = _as_utc(now) if now else datetime.now(UTC)
     onsets = _entity_onsets(group)
     series = _series_for_group(group)
     issue = _dominant_issue(group)

@@ -16,8 +16,8 @@ by cosine similarity, so :mod:`.retrieve` is backend-agnostic.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Sequence
 
 import numpy as np
 
@@ -126,7 +126,7 @@ class FaissStore:
 
 def make_vector_store(
     dim: int | None = None, *, prefer_qdrant: bool = False
-) -> "NumpyStore | FaissStore":
+) -> NumpyStore | FaissStore:
     """Return the best available dense store.
 
     Order of preference: Qdrant (if requested + importable) -> FAISS (if

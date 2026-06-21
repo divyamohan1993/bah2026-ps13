@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import abc
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 
@@ -34,7 +34,7 @@ from netra.contracts import AnomalyScore, DetectorFamily, EntityRef
 
 
 def _utcnow() -> datetime:
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=UTC)
 
 
 class RollingNormalizer:
@@ -157,7 +157,7 @@ class Detector(abc.ABC):
 
     # -- to implement / override -------------------------------------------
 
-    def _fit(self, series: np.ndarray) -> None:
+    def _fit(self, series: np.ndarray) -> None:  # noqa: B027 — optional hook, default no-op by design
         """Optional warm-up; default no-op (streaming detectors learn online)."""
 
     @abc.abstractmethod

@@ -50,7 +50,7 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from netra.analytics.anomaly import (
     AdwinDetector,
@@ -775,7 +775,7 @@ class NetraPipeline:
         correlates into incidents, explains + prioritises them, and answers the
         copilot for the top incident(s). Safe to call repeatedly while streaming.
         """
-        now = self._last_ts or datetime.now(timezone.utc)
+        now = self._last_ts or datetime.now(UTC)
 
         # 0) batch enrichment: run the heavier tier-2 detectors ONCE over the
         #    recent window of the highest-risk streams (independent-family agreement
@@ -1154,8 +1154,8 @@ class NetraPipeline:
 # --------------------------------------------------------------------------- #
 def _as_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def _tunnelstat_to_records(ts: TunnelStat) -> list[TelemetryRecord]:

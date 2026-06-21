@@ -23,7 +23,7 @@ CPU/offline tier; heavier members import their backends lazily behind
 from __future__ import annotations
 
 import abc
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 
@@ -41,7 +41,7 @@ from netra.contracts import (
 
 def _utcnow() -> datetime:
     """Timezone-aware UTC now (contracts use aware datetimes)."""
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=UTC)
 
 
 def to_series(history: object) -> np.ndarray:

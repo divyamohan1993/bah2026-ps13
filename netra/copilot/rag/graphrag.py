@@ -24,7 +24,6 @@ from __future__ import annotations
 import json
 from collections import deque
 from pathlib import Path
-from typing import Iterable
 
 from netra.contracts import AffectedScope, BlastRadius, EntityRef
 
@@ -49,7 +48,7 @@ class TopologyGraph:
 
     # -- construction -----------------------------------------------------------
     @classmethod
-    def from_corpus(cls, corpus_dir: str | Path | None = None) -> "TopologyGraph":
+    def from_corpus(cls, corpus_dir: str | Path | None = None) -> TopologyGraph:
         """Load every ``topology/*.json`` under the corpus into one graph."""
         g = cls()
         root = Path(corpus_dir) if corpus_dir else DEFAULT_CORPUS_DIR

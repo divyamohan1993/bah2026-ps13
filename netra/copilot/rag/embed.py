@@ -18,7 +18,7 @@ and trains the TF-IDF vocabulary for the fallback (corpus-driven, deterministic)
 from __future__ import annotations
 
 import os
-from typing import Sequence
+from collections.abc import Sequence
 
 import numpy as np
 
@@ -96,7 +96,7 @@ class Embedder:
             self.backend = "hashing"
 
     # -- fit / encode -----------------------------------------------------------
-    def fit(self, corpus: Sequence[str]) -> "Embedder":
+    def fit(self, corpus: Sequence[str]) -> Embedder:
         """Fit the fallback vocabulary on the corpus (no-op for transformers).
 
         If the corpus is empty or yields an empty vocabulary (e.g. only

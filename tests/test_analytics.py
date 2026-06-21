@@ -23,23 +23,10 @@ generator). Imports are restricted to ``netra.contracts`` + the analytics packag
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pytest
-
-from netra.contracts import (
-    AnomalyScore,
-    DetectorFamily,
-    Direction,
-    EntityRef,
-    FeatureVector,
-    Forecast,
-    FusedRisk,
-    IssueType,
-    MethodWeight,
-    TimeToImpact,
-)
 
 # analytics package under test
 from netra.analytics.anomaly import DetectorBank, build_detector_bank
@@ -57,8 +44,19 @@ from netra.analytics.fusion import (
     list_methods,
     method_count,
 )
+from netra.contracts import (
+    AnomalyScore,
+    DetectorFamily,
+    Direction,
+    EntityRef,
+    FeatureVector,
+    Forecast,
+    FusedRisk,
+    IssueType,
+    MethodWeight,
+    TimeToImpact,
+)
 
-UTC = timezone.utc
 T0 = datetime(2026, 6, 20, 12, 0, 0, tzinfo=UTC)
 
 
@@ -131,7 +129,7 @@ class TestForecasting:
         # horizons strictly increasing, starting one step ahead
         hs = [p.horizon_seconds for p in fc.points]
         assert hs[0] == pytest.approx(60.0)
-        assert all(b > a for a, b in zip(hs, hs[1:]))
+        assert all(b > a for a, b in zip(hs, hs[1:], strict=False))
         # the ramp is rising: the last predicted point should exceed the series end
         assert fc.points[-1].predicted > series[-1] - 5.0
         # band is present and never crosses the point (lower <= point <= upper)

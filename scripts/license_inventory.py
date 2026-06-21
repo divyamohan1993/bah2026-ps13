@@ -41,8 +41,8 @@ import argparse
 import json
 import re
 import sys
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
-from typing import Iterable
 
 try:  # stdlib on 3.8+, but guard for safety.
     from importlib import metadata as importlib_metadata

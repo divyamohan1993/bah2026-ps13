@@ -104,7 +104,7 @@ class LLMClient(abc.ABC):
     @abc.abstractmethod
     def complete_copilot(
         self, prompt: CopilotPrompt, grounding: CopilotGrounding
-    ) -> "CopilotResponse":  # noqa: F821  (forward ref to avoid import cost here)
+    ) -> CopilotResponse:  # noqa: F821  (forward ref to avoid import cost here)
         """Produce a validated :class:`CopilotResponse` for ``prompt``.
 
         Implementations MUST return a schema-valid response (the contract enforces

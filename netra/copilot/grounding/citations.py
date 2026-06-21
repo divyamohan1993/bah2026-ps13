@@ -19,8 +19,8 @@ of which produced the answer.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
 
 from netra.contracts import CopilotAction, CopilotResponse, Urgency
 
@@ -117,7 +117,7 @@ def enforce_citations(
         data["confidence_score"] = min(data.get("confidence_score", 0.0), 0.2)
         data["recommended_actions"] = [_abstain_action().model_dump()]
         # Strip now-dangling runbook refs.
-        for sig in data.get("contributing_signals", []):
+        for _sig in data.get("contributing_signals", []):
             pass
         return CopilotResponse.model_validate(data)
 

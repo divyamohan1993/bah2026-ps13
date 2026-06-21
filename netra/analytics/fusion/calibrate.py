@@ -108,7 +108,7 @@ def _isotonic_fit_numpy(scores: np.ndarray, labels: np.ndarray,
     vals: list[float] = []
     weights: list[float] = []
     xs_block: list[float] = []
-    for xi, yi in zip(xs, ys):
+    for xi, yi in zip(xs, ys, strict=False):
         vals.append(yi)
         weights.append(1.0)
         xs_block.append(xi)

@@ -61,8 +61,8 @@ def attribute_fused_risk(
     *,
     feature_values: Mapping[str, float] | None = None,
     model: object | None = None,
-    background: "np.ndarray | None" = None,
-    instance: "np.ndarray | None" = None,
+    background: np.ndarray | None = None,
+    instance: np.ndarray | None = None,
     feature_names: Sequence[str] | None = None,
     prefer_shap: bool = True,
 ) -> list[Attribution]:
@@ -89,8 +89,8 @@ def attribute_fused_risk(
 # ---------------------------------------------------------------------------
 def _shap_attributions(
     model: object,
-    instance: "np.ndarray",
-    background: "np.ndarray | None",
+    instance: np.ndarray,
+    background: np.ndarray | None,
     feature_names: Sequence[str] | None,
 ) -> list[Attribution]:  # pragma: no cover - requires shap + a model
     inst = np.asarray(instance, dtype=float).reshape(1, -1)
@@ -183,11 +183,11 @@ def _fallback_attributions(
 
 
 def permutation_importance_fallback(
-    predict: Callable[["np.ndarray"], "np.ndarray"],
-    instance: "np.ndarray",
+    predict: Callable[[np.ndarray], np.ndarray],
+    instance: np.ndarray,
     feature_names: Sequence[str],
     *,
-    background: "np.ndarray | None" = None,
+    background: np.ndarray | None = None,
     n_repeats: int = 5,
     seed: int = 0,
 ) -> list[Attribution]:

@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import math
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -47,6 +47,7 @@ from netra.streaming.detectors import (
     PageHinkleyDetector,
 )
 from netra.streaming.features import (
+    _HAS_STUMPY,
     ErrorRateAcceleration,
     HyperLogLog,
     JitterTrend,
@@ -58,10 +59,8 @@ from netra.streaming.features import (
     StreamingQuantile,
     TimeToThreshold,
     TopTalkerChurn,
-    _HAS_STUMPY,
 )
 
-UTC = timezone.utc
 T0 = datetime(2026, 6, 20, 12, 0, 0, tzinfo=UTC)
 
 
@@ -258,14 +257,12 @@ def test_page_hinkley_fires_after_step():
 def test_ewma_control_chart_flags_small_sustained_shift():
     """EWMA chart catches a small persistent shift that a Shewhart chart misses."""
     chart = EWMAControlChart(lambda_=0.2, L=3.0, warmup=30)
-    fired = False
     # baseline N(0,1) then a small +1.5 sigma sustained shift
     import random
 
     random.seed(123)
     for _ in range(200):
-        if chart.update(random.gauss(0.0, 1.0)):
-            fired = True
+        chart.update(random.gauss(0.0, 1.0))
     fired_after_shift = False
     for _ in range(80):
         if chart.update(random.gauss(1.5, 1.0)):
@@ -287,9 +284,7 @@ def test_hst_scales_inputs_and_flags_outlier():
 
     random.seed(0)
     # train on an in-distribution cluster with RAW (not pre-scaled) values
-    normal_score = 0.0
     for _ in range(400):
-        normal_score = det.score
         det.update({"util": random.uniform(40.0, 60.0), "lat": random.uniform(10.0, 20.0)})
     # a clear multivariate outlier should score strictly higher than normal
     det.update({"util": 50.0, "lat": 15.0})  # reinforce normal
@@ -367,7 +362,7 @@ def test_engine_is_deterministic():
     a = list(FeatureEngine().run(_congestion_stream(80)))
     b = list(FeatureEngine().run(_congestion_stream(80)))
     assert len(a) == len(b)
-    for fa, fb in zip(a, b):
+    for fa, fb in zip(a, b, strict=False):
         assert fa.features == fb.features
         assert fa.triggered_drift == fb.triggered_drift
 

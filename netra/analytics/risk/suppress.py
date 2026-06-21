@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 @dataclass
@@ -65,7 +65,7 @@ class FlapSuppressor:
         Decays the existing penalty to ``now`` first, then adds the increment(s),
         and updates the suppress/reuse hysteresis state.
         """
-        ts = _as_utc(now) if now else datetime.now(timezone.utc)
+        ts = _as_utc(now) if now else datetime.now(UTC)
         state = self._states.setdefault(entity_id, _FlapState())
         self._decay(state, ts)
         state.penalty = min(self.max_penalty, state.penalty + self.penalty_increment * flaps)
@@ -81,7 +81,7 @@ class FlapSuppressor:
         state = self._states.get(entity_id)
         if state is None:
             return 0.0
-        ts = _as_utc(now) if now else datetime.now(timezone.utc)
+        ts = _as_utc(now) if now else datetime.now(UTC)
         # decay a *copy* of the value (don't mutate last_update on a pure read).
         if state.last_update is not None and state.penalty > 0:
             dt = (ts - state.last_update).total_seconds()
@@ -131,8 +131,8 @@ class FlapSuppressor:
 
 def _as_utc(dt: datetime) -> datetime:
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 __all__ = ["FlapSuppressor"]

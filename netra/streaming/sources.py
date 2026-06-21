@@ -23,14 +23,13 @@ mapping; helpers for that live in :func:`routing_event_to_records`.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Iterable, Iterator
 from datetime import datetime
-from typing import Any, Callable, Iterable, Iterator, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from netra.contracts import (
-    DeviceRole,
     MetricName,
     RoutingEvent,
-    TelemetryKind,
     TelemetryRecord,
 )
 

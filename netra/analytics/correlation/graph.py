@@ -36,8 +36,9 @@ from :mod:`netra.contracts`.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 import networkx as nx
 
@@ -109,7 +110,7 @@ class TopologyGraph:
 
     # -- construction ------------------------------------------------------
     @classmethod
-    def from_spec(cls, spec: Mapping[str, Any]) -> "TopologyGraph":
+    def from_spec(cls, spec: Mapping[str, Any]) -> TopologyGraph:
         """Build a :class:`TopologyGraph` from a topology dict (see module docstring)."""
         g = nx.DiGraph()
         for node in spec.get("nodes", []):
@@ -119,9 +120,9 @@ class TopologyGraph:
         return cls(g)
 
     @classmethod
-    def from_json(cls, path: str | Path) -> "TopologyGraph":
+    def from_json(cls, path: str | Path) -> TopologyGraph:
         """Load a topology spec from a JSON file and build the graph."""
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             spec = json.load(fh)
         return cls.from_spec(spec)
 

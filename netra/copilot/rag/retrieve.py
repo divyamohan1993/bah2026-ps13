@@ -23,7 +23,7 @@ from __future__ import annotations
 import math
 import re
 from collections import Counter
-from typing import Sequence
+from collections.abc import Sequence
 
 from .embed import Embedder
 from .rerank import Reranker
@@ -55,7 +55,7 @@ class _PurePythonBM25:
         self._avgdl: float = 0.0
         self._n: int = 0
 
-    def fit(self, docs: Sequence[str]) -> "_PurePythonBM25":
+    def fit(self, docs: Sequence[str]) -> _PurePythonBM25:
         self._docs_tokens = [_tokenize(d) for d in docs]
         self._doc_freqs = [Counter(toks) for toks in self._docs_tokens]
         self._n = len(self._docs_tokens)
@@ -115,7 +115,7 @@ class HybridRetriever:
         self._bm25_backend = "pure_python"
 
     # -- indexing ---------------------------------------------------------------
-    def index(self, chunks: Sequence[Chunk]) -> "HybridRetriever":
+    def index(self, chunks: Sequence[Chunk]) -> HybridRetriever:
         """Embed + index ``chunks`` for both dense and sparse retrieval."""
         self._chunks = list(chunks)
         texts = [c.text for c in self._chunks]

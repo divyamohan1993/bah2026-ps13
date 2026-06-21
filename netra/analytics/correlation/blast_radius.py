@@ -27,9 +27,9 @@ from netra.contracts import BlastRadius, FlowRecord
 
 from .graph import (
     ATTR_DEVICE,
+    ATTR_SERVICES,
     ATTR_SITE,
     ATTR_SLAS,
-    ATTR_SERVICES,
     TopologyGraph,
 )
 

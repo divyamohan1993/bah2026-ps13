@@ -16,7 +16,7 @@ reranker is a quality upgrade, never a hard dependency.
 from __future__ import annotations
 
 import os
-from typing import Sequence
+from collections.abc import Sequence
 
 from .store import Chunk
 
@@ -76,7 +76,7 @@ class Reranker:
                 pairs = [[query, c.text] for c in cands]
                 scores = self._model.predict(pairs)
                 ranked = sorted(
-                    zip(cands, (float(s) for s in scores)),
+                    zip(cands, (float(s) for s in scores), strict=False),
                     key=lambda t: t[1],
                     reverse=True,
                 )

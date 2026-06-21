@@ -30,21 +30,21 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------- #
-  # Lint — ruff. Advisory (continue-on-error) so style findings surface in
-  # the logs without blocking the build; the suite + license gate are the
-  # hard gates.
+  # Lint — ruff. A HARD gate: the tree is clean (`ruff check .` exits 0) and a
+  # regression fails the build. Config (select / ignore / per-file-ignores /
+  # exclude) lives in pyproject.toml [tool.ruff]. ruff is pinned so a newer
+  # release introducing additional rules can't silently break the gate.
   # ---------------------------------------------------------------------- #
   lint:
     name: lint (ruff)
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - name: Install ruff
-        run: python -m pip install --upgrade pip ruff
+        run: python -m pip install --upgrade pip "ruff==0.15.18"
       - name: ruff check
         run: ruff check --output-format=github .
 

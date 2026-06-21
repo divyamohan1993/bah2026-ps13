@@ -32,7 +32,7 @@ input series yields the same trigger sequence (tested in ``tests/test_streaming`
 from __future__ import annotations
 
 import math
-from typing import Mapping
+from collections.abc import Mapping
 
 from river import anomaly, drift, preprocessing
 

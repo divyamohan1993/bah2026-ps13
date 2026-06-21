@@ -28,9 +28,9 @@ from __future__ import annotations
 
 import hashlib
 from collections import OrderedDict
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Iterable
+from datetime import UTC, datetime
 
 from netra.contracts import EntityRef, FeatureVector
 
@@ -140,7 +140,7 @@ class AlertEmitter:
         self.dedup_window_seconds = dedup_window_seconds
         self.max_keys = int(max_keys)
         # key -> first-seen epoch seconds (insertion-ordered for LRU eviction)
-        self._seen: "OrderedDict[str, float]" = OrderedDict()
+        self._seen: OrderedDict[str, float] = OrderedDict()
         self._emitted_count = 0
         self._suppressed_count = 0
 
@@ -199,7 +199,7 @@ class AlertEmitter:
         repeated precursor firings never double-fire.
         """
         if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=timezone.utc)
+            timestamp = timestamp.replace(tzinfo=UTC)
         now_epoch = timestamp.timestamp()
         self._expire(now_epoch)
         window_index = _floor_window(timestamp, self.window_seconds)

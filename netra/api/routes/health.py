@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 
@@ -19,7 +19,7 @@ def health(provider: SituationProvider = Depends(get_provider)) -> dict:
         "status": "ok",
         "service": "netra-api",
         "provider": "demo" if isinstance(provider, DemoProvider) else "live",
-        "time": datetime.now(timezone.utc).isoformat(),
+        "time": datetime.now(UTC).isoformat(),
     }
 
 

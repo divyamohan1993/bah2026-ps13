@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 import statistics as st
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -49,7 +49,7 @@ from netra.datagen import (
 from netra.datagen.scenarios import diurnal_multiplier
 
 # A small, fast, fully-deterministic config reused across tests.
-START = datetime(2026, 6, 20, 8, 0, tzinfo=timezone.utc)
+START = datetime(2026, 6, 20, 8, 0, tzinfo=UTC)
 
 
 def _cfg(seed: int = 1337, duration: float = 1200.0, step: float = 10.0) -> GeneratorConfig:
@@ -110,14 +110,14 @@ def test_source_iteration_is_repeatable():
 
 def test_diurnal_multiplier_is_deterministic_and_bounded():
     for h in range(0, 24):
-        ts = datetime(2026, 6, 20, h, 0, tzinfo=timezone.utc)
+        ts = datetime(2026, 6, 20, h, 0, tzinfo=UTC)
         m1 = diurnal_multiplier(ts)
         m2 = diurnal_multiplier(ts)
         assert m1 == m2
         assert 0.1 <= m1 <= 1.1
     # mid-afternoon busier than pre-dawn
-    busy = diurnal_multiplier(datetime(2026, 6, 20, 15, tzinfo=timezone.utc))
-    quiet = diurnal_multiplier(datetime(2026, 6, 20, 4, tzinfo=timezone.utc))
+    busy = diurnal_multiplier(datetime(2026, 6, 20, 15, tzinfo=UTC))
+    quiet = diurnal_multiplier(datetime(2026, 6, 20, 4, tzinfo=UTC))
     assert busy > quiet
 
 
@@ -284,7 +284,7 @@ def test_scenario_A_congestion_precursor_precedes_fault():
     assert st.mean(precursor) > st.mean(baseline) + 2.0
     assert st.mean(fault) > st.mean(precursor)
     # and it is *trending up* across the precursor window (lead-time signal)
-    pw = [(t, getattr(r, "value")) for r in records if pred(r)
+    pw = [(t, r.value) for r in records if pred(r)
           for t in [(r.timestamp - records[0].timestamp).total_seconds()]
           if (label.precursor_window_start - records[0].timestamp).total_seconds()
           <= t < (label.fault_window_start - records[0].timestamp).total_seconds()]
@@ -443,7 +443,7 @@ def test_generator_config_validates_inputs():
         GeneratorConfig(duration_s=0)
     # naive start is coerced to UTC
     cfg = GeneratorConfig(start=datetime(2026, 1, 1, 0, 0))
-    assert cfg.start.tzinfo is timezone.utc
+    assert cfg.start.tzinfo is UTC
 
 
 def test_source_rejects_config_and_kwargs_together():

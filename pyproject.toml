@@ -99,11 +99,34 @@ exclude = ["tests*", "sim*", "telemetry*", "ui*", "security*", "scripts*", "graf
 
 [tool.ruff]
 line-length = 100
-target-version = "py310"
+target-version = "py311"
+# Non-source / vendored / generated trees: never linted.
+extend-exclude = [
+    "research",
+    "bundles",
+    "models",
+    "ui/vendor",
+    ".github",
+    "*.gguf",
+]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "C4"]
-ignore = ["E501"]  # long lines tolerated in docstrings/examples
+# Pragmatic, high-signal set: pycodestyle (E/W), pyflakes (F: real bugs like
+# undefined / unused names), isort (I), pyupgrade (UP), bugbear (B).
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    "E501",   # line-too-long — tolerated in docstrings / tabular examples
+    "B008",   # function-call-in-default — this *is* the FastAPI `Depends(...)` idiom
+    "E741",   # ambiguous variable name (l/I/O) — used as a loop var in a few tests
+    "UP042",  # str+Enum vs StrEnum — `(str, Enum)` is valid & has stable str()/JSON
+              # semantics the contract enums rely on; not a behavioural rewrite we want
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Package __init__ files curate the public surface via re-exports.
+"__init__.py" = ["F401", "F403"]
+# Tests legitimately re-import / shadow fixtures and place imports after setup.
+"tests/*" = ["F811", "F401", "E402"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

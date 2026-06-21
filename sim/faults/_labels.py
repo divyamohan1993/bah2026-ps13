@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from netra.contracts import IssueType, ScenarioId, ScenarioLabel, Severity
@@ -53,9 +53,9 @@ class ScenarioClock:
 
     def __post_init__(self) -> None:
         if self.t0 is None:
-            self.t0 = datetime.now(timezone.utc)
+            self.t0 = datetime.now(UTC)
         elif self.t0.tzinfo is None:
-            self.t0 = self.t0.replace(tzinfo=timezone.utc)
+            self.t0 = self.t0.replace(tzinfo=UTC)
 
     @property
     def precursor_start(self) -> datetime:

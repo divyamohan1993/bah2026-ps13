@@ -242,7 +242,7 @@ class EnsembleForecaster:
             combined=combined,
             members=member_fcs,
             agreement=agreement,
-            weights={meth: float(wi) for meth, wi in zip(methods, w)},
+            weights={meth: float(wi) for meth, wi in zip(methods, w, strict=False)},
         )
 
     # -- internals ----------------------------------------------------------

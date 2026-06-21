@@ -233,8 +233,8 @@ class ContainerlabSource(TelemetrySource):
             "by the Containerlab lab in sim/, which is unavailable in the "
             "air-gapped CPU-only container. Use SyntheticSource for the CPU-only "
             "path. See netra/datagen/README.md and sim/README.md for how to bring "
-            "the live source up. (Configured: nats_url=%r subjects=%r)"
-            % (self.nats_url, self.subjects)
+            f"the live source up. (Configured: nats_url={self.nats_url!r} "
+            f"subjects={self.subjects!r})"
         )
 
     def labels(self) -> list[ScenarioLabel]:

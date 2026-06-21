@@ -8,7 +8,7 @@ deterministic template fallback (DemoProvider). The UI's chat box POSTs here.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 
@@ -57,7 +57,7 @@ def copilot_chat(
 
     req = CopilotRequest(
         request_id=body.request_id or f"chat-{uuid.uuid4().hex[:12]}",
-        created_at=body.created_at or datetime.now(timezone.utc),
+        created_at=body.created_at or datetime.now(UTC),
         operator_query=body.operator_query,
         auto_trigger=body.auto_trigger,
         incident_ref=body.incident_ref,

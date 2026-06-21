@@ -34,9 +34,8 @@ features + ``triggered_drift`` votes) to produce ``Forecast`` / ``AnomalyScore``
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Callable, Iterable, Iterator, Mapping
 
 from netra.contracts import (
     EntityRef,
@@ -113,7 +112,7 @@ class FeatureRegistry:
 
     specs: dict[str, list[FeatureSpec]] = field(default_factory=dict)
 
-    def register(self, metric: str, spec: FeatureSpec) -> "FeatureRegistry":
+    def register(self, metric: str, spec: FeatureSpec) -> FeatureRegistry:
         self.specs.setdefault(metric, []).append(spec)
         return self
 

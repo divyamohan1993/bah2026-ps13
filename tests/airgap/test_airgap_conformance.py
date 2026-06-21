@@ -38,7 +38,6 @@ import ssl
 from dataclasses import dataclass
 
 import pytest
-
 from conftest import is_strict
 
 pytestmark = pytest.mark.airgap
@@ -97,7 +96,7 @@ def _probe_tcp(ip: str, port: int, timeout: float = TIMEOUT) -> ProbeResult:
     try:
         s.connect((ip, port))
         return ProbeResult(True, f"TCP handshake to {ip}:{port} completed")
-    except (socket.timeout, TimeoutError):
+    except TimeoutError:
         return ProbeResult(False, "timed out")
     except OSError as exc:  # ConnectionRefused / NetworkUnreachable / etc.
         return ProbeResult(False, f"blocked ({exc.__class__.__name__}: {exc})")
@@ -120,7 +119,7 @@ def _probe_udp_dns(ip: str, port: int = 53, timeout: float = TIMEOUT) -> ProbeRe
         if data:
             return ProbeResult(True, f"UDP/{port} got a {len(data)}-byte DNS reply")
         return ProbeResult(False, "no reply payload")
-    except (socket.timeout, TimeoutError):
+    except TimeoutError:
         return ProbeResult(False, "timed out (no reply)")
     except OSError as exc:
         return ProbeResult(False, f"blocked ({exc.__class__.__name__}: {exc})")
@@ -145,7 +144,7 @@ def _probe_https_get(host: str, timeout: float = TIMEOUT) -> ProbeResult:
         conn.request("GET", "/", headers={"Host": host, "User-Agent": "netra-airgap-test"})
         resp = conn.getresponse()
         return ProbeResult(True, f"HTTPS GET {host} -> HTTP {resp.status}")
-    except (socket.timeout, TimeoutError):
+    except TimeoutError:
         return ProbeResult(False, "timed out")
     except (OSError, ssl.SSLError, http.client.HTTPException) as exc:
         return ProbeResult(False, f"blocked ({exc.__class__.__name__}: {exc})")

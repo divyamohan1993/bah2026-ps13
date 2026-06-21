@@ -39,7 +39,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from netra.contracts import (
     DeviceRole,
@@ -111,7 +111,7 @@ class GeneratorConfig:
 
     seed: int = 1337
     start: datetime = field(
-        default_factory=lambda: datetime(2026, 6, 20, 8, 0, tzinfo=timezone.utc)
+        default_factory=lambda: datetime(2026, 6, 20, 8, 0, tzinfo=UTC)
     )
     duration_s: float = 3600.0
     step_s: float = 10.0
@@ -130,9 +130,9 @@ class GeneratorConfig:
 
     def __post_init__(self) -> None:
         if self.start.tzinfo is None:
-            self.start = self.start.replace(tzinfo=timezone.utc)
+            self.start = self.start.replace(tzinfo=UTC)
         else:
-            self.start = self.start.astimezone(timezone.utc)
+            self.start = self.start.astimezone(UTC)
         if self.step_s <= 0:
             raise ValueError("step_s must be > 0")
         if self.duration_s <= 0:

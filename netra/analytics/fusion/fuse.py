@@ -53,7 +53,7 @@ another independent voice and the earliest/best
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 
@@ -103,7 +103,7 @@ _FAMILY_ISSUE_HINT: dict[DetectorFamily, IssueType] = {
 
 
 def _utcnow() -> datetime:
-    return datetime.now(tz=timezone.utc)
+    return datetime.now(tz=UTC)
 
 
 class RiskFuser:
@@ -252,7 +252,7 @@ class RiskFuser:
                 normalized_score=float(np.clip(s.normalized_score, 0.0, 1.0)),
                 weight=float(w),
             )
-            for s, w in zip(score_list, weights)
+            for s, w in zip(score_list, weights, strict=False)
         ]
 
         issue = predicted_issue or self._infer_issue(norm, families, risk_score)
@@ -356,7 +356,7 @@ class RiskFuser:
         [0,1].
         """
         per_family: dict[DetectorFamily, float] = {}
-        for f, s in zip(families, norm):
+        for f, s in zip(families, norm, strict=False):
             per_family[f] = max(per_family.get(f, 0.0), float(s))
 
         votes = list(per_family.values())

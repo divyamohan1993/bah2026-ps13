@@ -111,7 +111,7 @@ def topology_centrality(
             eig = nx.degree_centrality(g)
 
     raw: dict[str, float] = {}
-    for cid, n in zip(candidate_ids, nodes):
+    for cid, n in zip(candidate_ids, nodes, strict=False):
         if n in g:
             raw[cid] = 0.5 * float(betw.get(n, 0.0)) + 0.5 * float(eig.get(n, 0.0))
         else:

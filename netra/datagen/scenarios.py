@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 
@@ -81,7 +81,7 @@ def _stable_unit(seed: int, *parts: object) -> float:
 
 
 def _seconds_of_day(ts: datetime) -> float:
-    ts = ts.astimezone(timezone.utc)
+    ts = ts.astimezone(UTC)
     return ts.hour * 3600 + ts.minute * 60 + ts.second + ts.microsecond / 1e6
 
 
@@ -100,7 +100,7 @@ def diurnal_multiplier(ts: datetime, *, peak_hour: float = 15.0) -> float:
     # Overnight floor.
     val = max(0.18, primary + lunch)
     # Weekly modulation: weekends ~30% quieter.
-    weekday = ts.astimezone(timezone.utc).weekday()  # 0=Mon
+    weekday = ts.astimezone(UTC).weekday()  # 0=Mon
     if weekday >= 5:
         val *= 0.7
     return float(min(1.05, val))
