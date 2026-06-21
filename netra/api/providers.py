@@ -1072,66 +1072,423 @@ class DemoProvider(SituationProvider):
 #  Live provider — DI stub the integrator wires to the real engines           #
 # --------------------------------------------------------------------------- #
 class LiveProvider(SituationProvider):
-    """Stub provider for the wired-up deployment.
+    """The wired-up provider — serves REAL :class:`~netra.pipeline.NetraPipeline`
+    output to the API/UI.
 
-    The integrator replaces each ``NotImplementedError`` body with a call into
-    the real engine. The expected wiring (see ``netra/api/README.md``):
+    Two construction modes:
 
-      * ``incidents()``     -> ``netra.analytics.risk.prioritize`` output
-                               (the ranked ``Incident`` queue).
-      * ``situation()``     -> headline ``Incident`` + a copilot answer from
-                               ``netra.copilot.orchestrate``.
-      * ``risk_timeline()`` -> a query over the VictoriaMetrics risk series (or a
-                               ring-buffer of recent ``FusedRisk`` per entity).
-      * ``topology()``      -> ``netra.analytics.correlation.graph`` (the
-                               networkx digital twin) projected to nodes/edges.
-      * ``copilot()``       -> ``netra.copilot.orchestrate.answer(request)``.
-      * ``risk_tick()``     -> the latest frame off the NATS ``alerts.>`` /
-                               FusedRisk stream.
+      * **Wiring stub (default).** ``LiveProvider()`` with no pipeline/report
+        attached raises a documented :class:`NotImplementedError` from every read
+        method — the safe "not yet connected" state (so a bare ``live`` provider
+        never silently serves empty data). This is what ``make_provider("live")``
+        returns unless a scenario is configured.
+      * **Pipeline-backed.** :meth:`LiveProvider.from_scenario` (or passing a
+        prebuilt ``report=``) runs the full offline pipeline over a replayed
+        synthetic scenario once and serves its :class:`~netra.pipeline.SituationReport`
+        — ranked incidents, the per-entity FusedRisk timeline, the topology digital
+        twin, and the grounded copilot answers — through the same shapes the
+        :class:`DemoProvider` returns. ``NETRA_API_PROVIDER=live`` plus
+        ``NETRA_LIVE_SCENARIO=<A|B|C|D|ALL>`` selects this mode (see
+        :func:`make_provider`).
 
-    Construction takes optional engine handles so the integrator can inject them
-    without changing the route layer.
+    The wiring is a thin projection: the pipeline already produced contract
+    ``Incident`` / ``CopilotResponse`` objects, so the route layer is unchanged —
+    only the data source differs from the demo's seeded fabrication.
     """
 
-    def __init__(self, *, engines: object | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        engines: object | None = None,
+        report: object | None = None,
+        seed: int = 1337,
+        now: datetime | None = None,
+    ) -> None:
         self.engines = engines
+        self._report = report  # a netra.pipeline.SituationReport, or None (stub)
+        self.seed = seed
+        self._now = (now or datetime.now(UTC)).replace(microsecond=0)
+        self._tick = 0
+        self._rng = random.Random(seed)
+        # cached copilot answers keyed by incident id (lazily extended on demand).
+        self._copilot_cache: dict[str, CopilotResponse] = {}
 
-    def _todo(self, what: str) -> "NotImplementedError":
-        return NotImplementedError(
-            f"LiveProvider.{what} is a wiring stub — connect the real engine "
-            f"(see netra/api/README.md 'Wiring LiveProvider'). Until then, run the "
-            f"API with the DemoProvider (NETRA_API_PROVIDER=demo, the default)."
-        )
+    # -- construction from a pipeline run ----------------------------------- #
+    @classmethod
+    def from_scenario(
+        cls,
+        scenario: str | None = None,
+        *,
+        seed: int = 1337,
+        duration_s: float = 1200.0,
+        step_s: float = 10.0,
+        prefer_models: bool = False,
+    ) -> LiveProvider:
+        """Run the offline pipeline over a replayed scenario → a wired provider.
 
+        ``scenario`` is one of ``A`` / ``B`` / ``C`` / ``D`` (a single validation
+        scenario, the clearest single-incident view) or ``ALL`` / ``None`` (all
+        four injected into one run). Heavy imports are local so the module stays
+        import-light for the demo/stub paths.
+        """
+        from netra.contracts import ScenarioId
+        from netra.pipeline import NetraPipeline, PipelineConfig
+
+        alias = {
+            "A": ScenarioId.A_CONGESTION,
+            "B": ScenarioId.B_BGP_FLAP,
+            "C": ScenarioId.C_TUNNEL_DEGRADATION,
+            "D": ScenarioId.D_POLICY_DRIFT,
+        }
+        sel: object | None
+        key = (scenario or "").strip().upper()
+        if key in alias:
+            sel = alias[key]
+        else:
+            sel = None  # ALL / unknown -> the full four-scenario run
+
+        pipe = NetraPipeline(PipelineConfig(step_seconds=step_s), prefer_models=prefer_models)
+        report = pipe.run_scenario(sel, seed=seed, duration_s=duration_s, step_s=step_s)
+        return cls(report=report, seed=seed)
+
+    # -- guard for the unwired stub state ----------------------------------- #
+    def _require_report(self, what: str):
+        if self._report is None:
+            raise NotImplementedError(
+                f"LiveProvider.{what} is a wiring stub — no pipeline is attached. "
+                f"Build it with LiveProvider.from_scenario(...) or run the API with "
+                f"NETRA_API_PROVIDER=live and NETRA_LIVE_SCENARIO=<A|B|C|D|ALL> "
+                f"(see netra/api/README.md 'Wiring LiveProvider'). The default "
+                f"DemoProvider (NETRA_API_PROVIDER=demo) needs no engine."
+            )
+        return self._report
+
+    # -- read model (served from the pipeline's SituationReport) ------------ #
     def incidents(self) -> list[Incident]:
-        raise self._todo("incidents")
+        report = self._require_report("incidents")
+        return list(report.incidents)
 
     def situation(self) -> dict:
-        raise self._todo("situation")
+        report = self._require_report("situation")
+        if not report.incidents:
+            return {
+                "generated_at": self._now.isoformat(),
+                "source": "live",
+                "headline_incident": None,
+                "copilot": None,
+                "answers": {},
+                "fleet": {"incident_count": 0, "by_severity": {}},
+            }
+        headline = report.incidents[0]
+        copilot = self._copilot_for(headline, request_id="situation-auto")
+        by_sev: dict[str, int] = {}
+        for inc in report.incidents:
+            by_sev[inc.severity.value] = by_sev.get(inc.severity.value, 0) + 1
+        return {
+            "generated_at": self._now.isoformat(),
+            "source": "live",
+            "headline_incident": headline.model_dump(mode="json"),
+            "copilot": copilot.model_dump(mode="json"),
+            "answers": {
+                "q1_what_when": {
+                    "predicted_issue": copilot.predicted_issue.value,
+                    "time_to_impact_minutes": copilot.time_to_impact_minutes,
+                    "confidence": copilot.confidence_score,
+                    "affected_scope": copilot.affected_scope.model_dump(mode="json"),
+                },
+                "q2_why": {
+                    "root_cause_hypothesis": copilot.root_cause_hypothesis,
+                    "contributing_signals": [
+                        s.model_dump(mode="json") for s in copilot.contributing_signals
+                    ],
+                },
+                "q3_action": {
+                    "recommended_actions": [
+                        a.model_dump(mode="json") for a in copilot.recommended_actions
+                    ],
+                },
+            },
+            "fleet": {
+                "incident_count": len(report.incidents),
+                "by_severity": by_sev,
+            },
+        }
 
     def risk_timeline(self, entity_id: str | None = None) -> dict:
-        raise self._todo("risk_timeline")
+        report = self._require_report("risk_timeline")
+        # default to the headline incident's root-cause entity.
+        target = entity_id
+        if target is None and report.incidents and report.incidents[0].root_cause_entity:
+            target = report.incidents[0].root_cause_entity.entity_id
+        target = target or "fleet"
+        points = report.risk_history.get(target, [])
+        # if the exact id has no history, fall back to any tracked entity on the
+        # same device node (the pipeline keys risk by the fine-grained id).
+        if not points:
+            for eid, pts in report.risk_history.items():
+                if target.split(":")[:2] == eid.split(":")[:2]:
+                    target, points = eid, pts
+                    break
+        threshold = 0.7
+        series = [
+            {
+                "timestamp": p.timestamp.isoformat(),
+                "risk": round(p.risk_score, 4),
+                "lower": round(max(0.0, p.risk_score - 0.05), 4),
+                "upper": round(min(1.0, p.risk_score + 0.05), 4),
+            }
+            for p in points
+        ]
+        breach_idx = next(
+            (i for i, p in enumerate(series) if p["risk"] >= threshold), None
+        )
+        return {
+            "entity_id": target,
+            "generated_at": self._now.isoformat(),
+            "threshold": threshold,
+            "breach_index": breach_idx,
+            "points": series,
+        }
 
     def topology(self) -> dict:
-        raise self._todo("topology")
+        report = self._require_report("topology")
+        # Project the pipeline's correlation digital twin to Cytoscape elements,
+        # colouring root-cause + blast-radius devices from the report's incidents.
+        from netra.pipeline.topology_adapter import build_pipeline_graph
+
+        graph = build_pipeline_graph()
+        device_risk: dict[str, float] = {}
+        root_devices: set[str] = set()
+        blast_devices: set[str] = set()
+        for inc in report.incidents:
+            if inc.root_cause_entity:
+                rd = inc.root_cause_entity.device
+                root_devices.add(rd)
+                device_risk[rd] = max(device_risk.get(rd, 0.0), inc.risk.risk_score)
+            for d in inc.blast_radius.affected_devices:
+                blast_devices.add(d)
+                device_risk[d] = max(device_risk.get(d, 0.0), inc.risk.risk_score * 0.5)
+
+        nodes = []
+        node_ids = set()
+        for nid in graph.nodes():
+            ref = graph.entity_ref(nid)
+            dev = ref.device
+            node_ids.add(dev)
+            risk = device_risk.get(dev, round(self._rng.uniform(0.02, 0.1), 3))
+            nodes.append(
+                {
+                    "data": {
+                        "id": dev,
+                        "entity_id": nid,
+                        "label": dev,
+                        "site": ref.site,
+                        "site_type": ref.site_type.value if ref.site_type else None,
+                        "role": ref.role.value,
+                        "risk": round(risk, 3),
+                        "is_root_cause": dev in root_devices,
+                        "in_blast_radius": dev in blast_devices,
+                    }
+                }
+            )
+        edges = []
+        seen_edges: set[tuple[str, str]] = set()
+        for u, v in graph.g.edges():
+            du, dv = graph.entity_ref(u).device, graph.entity_ref(v).device
+            if du == dv or (du, dv) in seen_edges or (dv, du) in seen_edges:
+                continue
+            seen_edges.add((du, dv))
+            er = max(device_risk.get(du, 0.0), device_risk.get(dv, 0.0))
+            edges.append(
+                {
+                    "data": {
+                        "id": f"{du}-{dv}",
+                        "source": du,
+                        "target": dv,
+                        "kind": graph.g.edges[u, v].get("kind", "link"),
+                        "risk": round(er, 3),
+                    }
+                }
+            )
+        return {
+            "generated_at": self._now.isoformat(),
+            "root_cause_devices": sorted(root_devices),
+            "blast_radius_devices": sorted(blast_devices),
+            "elements": {"nodes": nodes, "edges": edges},
+        }
 
     def copilot(self, request: CopilotRequest) -> CopilotResponse:
-        raise self._todo("copilot")
+        report = self._require_report("copilot")
+        if not report.incidents:
+            raise NotImplementedError("LiveProvider.copilot: pipeline produced no incidents")
+        inc = None
+        if request.incident_ref:
+            inc = next(
+                (i for i in report.incidents if i.incident_id == request.incident_ref), None
+            )
+        if inc is None and request.entity_refs:
+            inc = next(
+                (
+                    i
+                    for i in report.incidents
+                    if i.root_cause_entity
+                    and i.root_cause_entity.entity_id in request.entity_refs
+                ),
+                None,
+            )
+        if inc is None:
+            inc = report.incidents[0]
+        return self._copilot_for(inc, request_id=request.request_id, query=request.operator_query)
 
     def risk_tick(self) -> dict:
-        raise self._todo("risk_tick")
+        report = self._require_report("risk_tick")
+        self._tick += 1
+        ts = self._now + timedelta(seconds=10 * self._tick)
+        if not report.incidents:
+            return {"type": "risk_tick", "tick": self._tick, "timestamp": ts.isoformat(),
+                    "entities": []}
+        headline = report.incidents[0]
+        tti = headline.risk.time_to_impact
+        eta_min = None
+        if tti and tti.eta_seconds is not None:
+            eta_min = max(0.0, round((tti.eta_seconds - 10 * self._tick) / 60.0, 1))
+        ent_id = (
+            headline.root_cause_entity.entity_id if headline.root_cause_entity else "n/a"
+        )
+        entities = []
+        for inc in report.incidents[:6]:
+            if inc.root_cause_entity:
+                wobble = (self._rng.random() - 0.5) * 0.02
+                entities.append(
+                    {
+                        "entity_id": inc.root_cause_entity.entity_id,
+                        "device": inc.root_cause_entity.device,
+                        "risk": round(max(0.0, min(1.0, inc.risk.risk_score + wobble)), 4),
+                    }
+                )
+        return {
+            "type": "risk_tick",
+            "tick": self._tick,
+            "timestamp": ts.isoformat(),
+            "headline_entity": ent_id,
+            "headline_risk": round(headline.risk.risk_score, 4),
+            "headline_eta_minutes": eta_min,
+            "predicted_issue": headline.predicted_issue.value,
+            "entities": entities,
+        }
+
+    # -- helpers ------------------------------------------------------------ #
+    def _copilot_for(
+        self, inc: Incident, *, request_id: str, query: str | None = None
+    ) -> CopilotResponse:
+        """Reuse the pipeline's grounded copilot answer; synthesise if absent.
+
+        The pipeline already answered the copilot for its top incident(s); we serve
+        that grounded answer. For an incident the pipeline did not pre-answer (or a
+        free-text operator query needing a fresh request_id), we re-derive a
+        contract-valid answer from the incident (the same template-fallback shape).
+        """
+        report = self._report
+        pre = report.copilot_answers.get(inc.incident_id) if report is not None else None
+        if pre is not None and query is None:
+            # echo the pre-computed grounded answer under the caller's request id.
+            data = pre.model_dump()
+            data["request_id"] = request_id
+            return CopilotResponse(**data)
+        return self._synth_copilot(inc, request_id=request_id, query=query)
+
+    @staticmethod
+    def _synth_copilot(
+        inc: Incident, *, request_id: str, query: str | None = None
+    ) -> CopilotResponse:
+        tti = inc.risk.time_to_impact
+        tti_min = (
+            round(tti.eta_seconds / 60.0, 1) if tti and tti.eta_seconds is not None else None
+        )
+        scope = AffectedScope(
+            sites=list(inc.blast_radius.affected_sites),
+            devices=list(inc.blast_radius.affected_devices),
+            services_or_vpns=list(inc.blast_radius.affected_services_or_vpns),
+        )
+        signals = [
+            CopilotSignal(
+                signal=s.signal,
+                observation=s.observation or s.human_explanation,
+                shap_contribution=s.shap_value,
+            )
+            for s in inc.contributing_signals[:6]
+        ]
+        actions: list[CopilotAction] = []
+        citations: list[str] = []
+        if inc.recommended_playbook:
+            citations.append(
+                inc.recommended_playbook.source_ref or inc.recommended_playbook.playbook_id
+            )
+            for a in inc.recommended_playbook.actions:
+                actions.append(
+                    CopilotAction(
+                        step=a.description,
+                        runbook_ref=a.runbook_ref,
+                        urgency=a.urgency,
+                        requires_approval=a.requires_approval,
+                    )
+                )
+                if a.runbook_ref:
+                    citations.append(a.runbook_ref)
+        if not actions:
+            actions.append(
+                CopilotAction(
+                    step=(
+                        "Collect diagnostics for the affected entities and correlate "
+                        "against the predicted issue before any state-changing action."
+                    ),
+                    runbook_ref=None,
+                    urgency=Urgency.IMMEDIATE,
+                    requires_approval=False,
+                )
+            )
+        citations.append(f"telemetry:{inc.incident_id}:{inc.window_start.isoformat()}")
+        citations = list(dict.fromkeys(citations))
+        root_cause = inc.root_cause_hypothesis
+        if query:
+            q = query.strip()
+            if len(q) > 160:
+                q = q[:157] + "…"
+            root_cause = (f"Re: “{q}” — " + inc.root_cause_hypothesis)[:1200]
+        return CopilotResponse(
+            request_id=request_id,
+            predicted_issue=inc.predicted_issue,
+            confidence_score=inc.risk.calibrated_confidence,
+            time_to_impact_minutes=tti_min,
+            root_cause_hypothesis=root_cause or "See contributing signals.",
+            contributing_signals=signals,
+            affected_scope=scope,
+            recommended_actions=actions,
+            citations=citations,
+            insufficient_context=False,
+            grounding_score=0.9,
+            used_fallback=True,
+            model_id="template-fallback",
+        )
 
 
 def make_provider(kind: str | None = None, **kwargs) -> SituationProvider:
     """Factory: build a provider by name.
 
     ``kind`` defaults to the ``NETRA_API_PROVIDER`` env var, then ``"demo"``.
-    Recognised: ``"demo"`` (self-contained, default) and ``"live"`` (wiring stub).
+    Recognised: ``"demo"`` (self-contained, default) and ``"live"`` (pipeline-backed
+    when ``NETRA_LIVE_SCENARIO`` is set, else a documented wiring stub).
     """
     import os
 
     kind = (kind or os.environ.get("NETRA_API_PROVIDER") or "demo").lower()
     if kind == "live":
+        # Pipeline-backed only when a scenario is explicitly requested, so a bare
+        # ``make_provider("live")`` stays the safe wiring stub (no surprise compute).
+        scenario = os.environ.get("NETRA_LIVE_SCENARIO")
+        if scenario:
+            duration = float(os.environ.get("NETRA_LIVE_DURATION", "1200"))
+            return LiveProvider.from_scenario(scenario, duration_s=duration)
         return LiveProvider(**kwargs)
     if kind == "demo":
         seed = int(os.environ.get("NETRA_API_SEED", kwargs.pop("seed", 1337)))

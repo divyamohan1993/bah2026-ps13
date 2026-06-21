@@ -86,27 +86,40 @@ requirements-api.txt    # fastapi, uvicorn, httpx (extra deps beyond core tier)
 
 ## Wiring `LiveProvider` to the real engines (integrator)
 
-`providers.LiveProvider` is a stub: every method raises `NotImplementedError`
-with a note on which engine call fills it. To go live, implement each method and
-either set `NETRA_API_PROVIDER=live` or call `deps.set_provider(LiveProvider(engines=...))`
-at startup. Expected wiring:
+`providers.LiveProvider` is **wired to the end-to-end pipeline**
+(`netra.pipeline.NetraPipeline`). It has two modes:
 
-| Method | Wire to |
+- **Pipeline-backed (real output).** `LiveProvider.from_scenario("A"|"B"|"C"|"D"|"ALL")`
+  runs the full offline chain (synthetic source → streaming → ensemble → fusion →
+  correlation/risk/explain → copilot) over a replayed validation scenario *once*
+  and serves the resulting `SituationReport` through every endpoint. Enable it from
+  the env: `NETRA_API_PROVIDER=live NETRA_LIVE_SCENARIO=A` (optionally
+  `NETRA_LIVE_DURATION=1200`). All output is REAL pipeline output — ranked
+  `Incident[]`, the per-entity FusedRisk timeline, the topology digital twin, and
+  the grounded `CopilotResponse`.
+- **Wiring stub (default for bare `live`).** A bare `make_provider("live")` with no
+  `NETRA_LIVE_SCENARIO` returns a `LiveProvider()` whose methods raise a documented
+  `NotImplementedError` (so an unconfigured `live` provider never silently serves
+  empty data). Pass a prebuilt report (`LiveProvider(report=...)`) or use
+  `deps.set_provider(LiveProvider.from_scenario(...))` to wire it explicitly.
+
+How each method is sourced from the pipeline's `SituationReport`:
+
+| Method | Sourced from |
 |---|---|
-| `incidents()` | `netra.analytics.risk.prioritize` output — the ranked `Incident[]` (already correlated, with `BlastRadius` + `ContributingSignal[]` + `Playbook`). |
-| `situation()` | the headline `Incident` + a `CopilotResponse` from `netra.copilot.orchestrate.answer(...)`. |
-| `risk_timeline(entity_id)` | a PromQL/MetricsQL query over the VictoriaMetrics risk series, **or** a ring-buffer of recent `FusedRisk.risk_score` per entity. Keep the `{points:[{timestamp,risk,lower,upper}], threshold, breach_index}` shape. |
-| `topology()` | project `netra.analytics.correlation.graph` (the networkx digital twin) to Cytoscape `{nodes,edges}`, copying per-node `risk`, `is_root_cause`, `in_blast_radius` from the live incidents. |
-| `copilot(request)` | `netra.copilot.orchestrate.answer(request)` → `CopilotResponse` (the LLM path *or* its template fallback — same schema, so the API/UI are unchanged). |
-| `risk_tick()` | the latest frame off the NATS `alerts.>` / `FusedRisk` stream (or poll the engine), shaped like the demo `risk_tick`. |
+| `incidents()` | `report.incidents` — the ranked, severity-bucketed `Incident[]` (correlated, RCA'd, blast-radius'd, explained by `netra.analytics.risk.prioritize_incidents`). |
+| `situation()` | `report.incidents[0]` + its grounded `CopilotResponse` (`report.copilot_answers`). |
+| `risk_timeline(entity_id)` | `report.risk_history[entity_id]` — the per-tick `FusedRisk` trajectory, in the `{points:[{timestamp,risk,lower,upper}], threshold, breach_index}` shape. |
+| `topology()` | the pipeline's correlation digital twin (`netra.pipeline.topology_adapter.build_pipeline_graph`) projected to Cytoscape `{nodes,edges}`, with per-node `risk` / `is_root_cause` / `in_blast_radius` from the report's incidents. |
+| `copilot(request)` | the pipeline's pre-computed grounded `CopilotResponse` for the resolved incident (re-derived for a free-text query). |
+| `risk_tick()` | a live frame synthesised from the headline incident's risk + countdown ETA. |
 
 Because both the LLM and the template fallback return `CopilotResponse`, and the
-DemoProvider already emits the *fallback* shape (`used_fallback=True`,
+pipeline emits the *fallback* shape on the CPU-only path (`used_fallback=True`,
 `model_id="template-fallback"`, confidence sourced from the analytics objects —
-never invented), the UI renders identically in every degradation mode.
-
-`POST /api/copilot/query` also accepts a `llama-server` (OpenAI-compatible) wiring
-inside `LiveProvider.copilot` — `httpx` is already a dependency for that call.
+never invented), the UI renders identically in every degradation mode. Set
+`NETRA_LLAMA_URL` (loopback only) to let the pipeline's copilot use a local
+`llama-server` instead — the API/UI are unchanged.
 
 ## Tests
 

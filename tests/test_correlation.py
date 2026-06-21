@@ -530,8 +530,12 @@ def test_explain_produces_signals_with_sane_directions():
 
 
 def test_explain_fallback_used_without_shap():
-    # In the light test env shap is absent → deterministic fallback must run.
-    assert shap_available() is False
+    # The deterministic fallback must run whenever no SHAP model+instance is
+    # supplied — regardless of whether the optional ``shap`` library happens to be
+    # importable in this environment (it ships in the core tier, so it usually is).
+    # ``shap_available()`` is informational here; the contract under test is that
+    # ``attribute_fused_risk`` with no model falls back to the model-free path.
+    _ = shap_available()
     risk = _fused("br1:ce-br1:CE", risk=0.5, issue=IssueType.TUNNEL_DEGRADATION, t=T0)
     attrs = attribute_fused_risk(risk)
     assert attrs
