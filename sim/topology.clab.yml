@@ -1,0 +1,172 @@
+# NETRA reference topology — Containerlab IaC (Workstream 1)
+# ==========================================================
+# The frozen, self-contained Containerlab bundle for the 5-site SD-WAN-over-MPLS
+# reference network. This file is what `netlab create -p clab sim/netlab/topology.yml`
+# is designed to emit; it is hand-maintained here so the lab runs on a plain
+# Containerlab host WITHOUT netlab installed (the air-gap artifact, research/01
+# §5.1). Device names/roles/sites match netra/datagen/topology.py and the netlab
+# source so the live SIM source and the synthetic source describe the same graph.
+#
+# Bring up (offline; images pre-staged — see README "Air-gap"):
+#   sudo containerlab deploy   -t sim/topology.clab.yml
+#   sudo containerlab destroy  -t sim/topology.clab.yml --cleanup
+#   sudo containerlab inspect  -t sim/topology.clab.yml
+#
+# Host prerequisite (real MPLS dataplane): kernel MPLS modules loaded
+#   sudo modprobe mpls_router mpls_gso mpls_iptunnel
+# (see README; without these SR-MPLS/LDP forwarding will not program the LFIB).
+
+name: netra
+
+mgmt:
+  network: netra-mgmt
+  ipv4-subnet: 172.20.20.0/24      # management only; data plane is on the links
+
+topology:
+  kinds:
+    linux:
+      # FRRouting container; configs are bind-mounted read-only per node.
+      image: frrouting/frr:v10.3.0
+    nokia_srlinux:
+      image: ghcr.io/nokia/srlinux:24.10.1
+      type: ixrd3
+
+  defaults:
+    kind: linux
+
+  nodes:
+    # ===================== MPLS provider core (4x P) =====================
+    p1:
+      group: core
+      labels: {role: P, site: core}
+      binds:
+        - configs/frr/daemons:/etc/frr/daemons:ro
+        - configs/frr/p1/frr.conf:/etc/frr/frr.conf:ro
+      exec:
+        - sysctl -w net.mpls.platform_labels=1048575
+        - sysctl -w net.mpls.conf.lo.input=1
+    p2:
+      kind: nokia_srlinux           # SR Linux core node for native gNMI telemetry
+      group: core
+      labels: {role: P, site: core}
+      binds:
+        - configs/srlinux/p2.cfg:/tmp/startup.cfg:ro
+    p3:
+      group: core
+      labels: {role: P, site: core}
+      binds:
+        - configs/frr/daemons:/etc/frr/daemons:ro
+        - configs/frr/p3/frr.conf:/etc/frr/frr.conf:ro
+      exec:
+        - sysctl -w net.mpls.platform_labels=1048575
+        - sysctl -w net.mpls.conf.lo.input=1
+    p4:
+      group: core
+      labels: {role: P, site: core}
+      binds:
+        - configs/frr/daemons:/etc/frr/daemons:ro
+        - configs/frr/p4/frr.conf:/etc/frr/frr.conf:ro
+      exec:
+        - sysctl -w net.mpls.platform_labels=1048575
+        - sysctl -w net.mpls.conf.lo.input=1
+
+    # ========================= Datacenter site ==========================
+    pe-dc1:
+      kind: nokia_srlinux           # SR Linux PE (premium streaming telemetry)
+      group: dc
+      labels: {role: PE, site: dc}
+      binds:
+        - configs/srlinux/pe-dc1.cfg:/tmp/startup.cfg:ro
+    pe-dc2:
+      group: dc
+      labels: {role: PE, site: dc}
+      binds:
+        - configs/frr/daemons:/etc/frr/daemons:ro
+        - configs/frr/pe-dc2/frr.conf:/etc/frr/frr.conf:ro
+      exec:
+        - sysctl -w net.mpls.platform_labels=1048575
+        - sysctl -w net.mpls.conf.lo.input=1
+    ce-dc:
+      group: dc
+      labels: {role: CE, site: dc}
+      binds:
+        - configs/frr/daemons:/etc/frr/daemons:ro
+        - configs/frr/ce-dc/frr.conf:/etc/frr/frr.conf:ro
+    rr-dc:
+      group: dc
+      labels: {role: RR, site: dc}   # MP-BGP VPNv4 route reflector (scenario B)
+      binds:
+        - configs/frr/daemons:/etc/frr/daemons:ro
+        - configs/frr/rr-dc/frr.conf:/etc/frr/frr.conf:ro
+
+    # ========================== HQ / Hub site ===========================
+    pe-hub:
+      kind: nokia_srlinux
+      group: hub
+      labels: {role: PE, site: hub}
+      binds:
+        - configs/srlinux/pe-hub.cfg:/tmp/startup.cfg:ro
+    ce-hub:
+      group: hub
+      labels: {role: CE, site: hub}   # strongSwan IPSec head-end (scenario A)
+      # NET_ADMIN + the strongSwan config let this CE terminate GRE-over-IPSec.
+      capabilities: [NET_ADMIN]
+      binds:
+        - configs/frr/daemons:/etc/frr/daemons:ro
+        - configs/frr/ce-hub/frr.conf:/etc/frr/frr.conf:ro
+        - configs/strongswan/ce-hub.ipsec.conf:/etc/ipsec.conf:ro
+        - configs/strongswan/ipsec.secrets:/etc/ipsec.secrets:ro
+
+    # ===================== Branch spokes (3x CE) =========================
+    ce-br1:
+      group: br1
+      labels: {role: CE, site: br1}
+      capabilities: [NET_ADMIN]
+      binds:
+        - configs/frr/daemons:/etc/frr/daemons:ro
+        - configs/frr/ce-br1/frr.conf:/etc/frr/frr.conf:ro
+        - configs/strongswan/ce-br1.ipsec.conf:/etc/ipsec.conf:ro
+        - configs/strongswan/ipsec.secrets:/etc/ipsec.secrets:ro
+    ce-br2:
+      group: br2
+      labels: {role: CE, site: br2}
+      capabilities: [NET_ADMIN]
+      binds:
+        - configs/frr/daemons:/etc/frr/daemons:ro
+        - configs/frr/ce-br2/frr.conf:/etc/frr/frr.conf:ro
+        - configs/strongswan/ce-br2.ipsec.conf:/etc/ipsec.conf:ro
+        - configs/strongswan/ipsec.secrets:/etc/ipsec.secrets:ro
+    ce-br3:
+      group: br3
+      labels: {role: CE, site: br3}
+      capabilities: [NET_ADMIN]
+      binds:
+        - configs/frr/daemons:/etc/frr/daemons:ro
+        - configs/frr/ce-br3/frr.conf:/etc/frr/frr.conf:ro
+        - configs/strongswan/ce-br3.ipsec.conf:/etc/ipsec.conf:ro
+        - configs/strongswan/ipsec.secrets:/etc/ipsec.secrets:ro
+
+  # Links: each is a two-endpoint point-to-point (the Containerlab equivalent of
+  # the netlab `interfaces:` two-endpoint list). endpoints: [<node>:<iface>, ...].
+  links:
+    # --- core mesh (P-P) ---
+    - endpoints: [p1:eth1, p2:eth1]
+    - endpoints: [p2:eth2, p3:eth1]
+    - endpoints: [p3:eth2, p4:eth1]
+    - endpoints: [p4:eth2, p1:eth2]
+    - endpoints: [p1:eth3, p3:eth3]      # diagonal redundancy
+
+    # --- PE uplinks into the core ---
+    - endpoints: [pe-dc1:eth1, p1:eth4]
+    - endpoints: [pe-dc2:eth1, p2:eth3]
+    - endpoints: [pe-hub:eth1, p3:eth4]  # scenario A degrades pe-hub:eth3 (CE side)
+
+    # --- route reflector at the DC PE ---
+    - endpoints: [rr-dc:eth1, pe-dc1:eth3]
+
+    # --- PE-CE access links (L3VPN VRF on the PE side) ---
+    - endpoints: [ce-dc:eth1, pe-dc1:eth2]
+    - endpoints: [ce-hub:eth1, pe-hub:eth2]
+    - endpoints: [ce-br1:eth1, pe-hub:eth3]
+    - endpoints: [ce-br2:eth1, pe-hub:eth4]
+    - endpoints: [ce-br3:eth1, pe-dc2:eth2]

@@ -1,0 +1,51 @@
+{
+  "topology_id": "TOPO-NETRA-REF-001",
+  "title": "NETRA reference SD-WAN-over-MPLS topology (5 sites, ~20 nodes)",
+  "description": "Five-site enterprise: a datacenter (dual PE + RR), a hub, three branches, and an MPLS provider core (IS-IS + SR-MPLS). L3VPN VRFs CORP (RD/RT 100:1) and OT (RD/RT 100:2). Overlay is strongSwan GRE-over-IPSec hub-spoke + partial mesh. This is the authoritative topology graph for GraphRAG-lite blast-radius reasoning.",
+  "sites": [
+    {"site": "dc1", "site_type": "datacenter", "description": "Datacenter: dual PE + route-reflector candidate."},
+    {"site": "hub1", "site_type": "hub", "description": "Hub aggregation site; scenario-A congestion target."},
+    {"site": "br1", "site_type": "branch", "description": "Branch spoke 1."},
+    {"site": "br2", "site_type": "branch", "description": "Branch spoke 2."},
+    {"site": "br3", "site_type": "branch", "description": "Branch spoke 3; scenario-C tunnel-degradation target."},
+    {"site": "core", "site_type": "core", "description": "MPLS provider core (IS-IS + SR-MPLS); scenario-C underlay."},
+    {"site": "rr1", "site_type": "core", "description": "Route reflector site; scenario-B BGP-flap target."}
+  ],
+  "devices": [
+    {"device": "pe-dc1", "site": "dc1", "role": "PE", "entity_id": "dc1:pe-dc1:PE", "vrfs": ["CORP", "OT"]},
+    {"device": "pe-dc1b", "site": "dc1", "role": "PE", "entity_id": "dc1:pe-dc1b:PE", "vrfs": ["CORP", "OT"]},
+    {"device": "pe-hub1", "site": "hub1", "role": "PE", "entity_id": "hub1:pe-hub1:PE", "vrfs": ["CORP", "OT"]},
+    {"device": "ce-br1", "site": "br1", "role": "CE", "entity_id": "br1:ce-br1:CE", "vrfs": ["CORP"]},
+    {"device": "ce-br2", "site": "br2", "role": "CE", "entity_id": "br2:ce-br2:CE", "vrfs": ["CORP"]},
+    {"device": "ce-br3", "site": "br3", "role": "CE", "entity_id": "br3:ce-br3:CE", "vrfs": ["CORP", "OT"]},
+    {"device": "p1", "site": "core", "role": "P", "entity_id": "core:p1:P"},
+    {"device": "p2", "site": "core", "role": "P", "entity_id": "core:p2:P"},
+    {"device": "p3", "site": "core", "role": "P", "entity_id": "core:p3:P"},
+    {"device": "rr1", "site": "rr1", "role": "RR", "entity_id": "rr1:rr1:RR"},
+    {"device": "sdwan-ctl", "site": "hub1", "role": "controller", "entity_id": "hub1:sdwan-ctl:controller"}
+  ],
+  "links": [
+    {"from": "hub1:pe-hub1:PE", "to": "core:p1:P", "kind": "mpls", "description": "Hub uplink to core (scenario-A congestion)."},
+    {"from": "dc1:pe-dc1:PE", "to": "core:p1:P", "kind": "mpls"},
+    {"from": "dc1:pe-dc1b:PE", "to": "core:p3:P", "kind": "mpls"},
+    {"from": "core:p1:P", "to": "core:p2:P", "kind": "mpls", "description": "Core LSP segment (scenario-C underlay via p2)."},
+    {"from": "core:p2:P", "to": "core:p3:P", "kind": "mpls"},
+    {"from": "rr1:rr1:RR", "to": "dc1:pe-dc1:PE", "kind": "bgp", "description": "VPNv4 RR session (scenario-B flap)."},
+    {"from": "rr1:rr1:RR", "to": "hub1:pe-hub1:PE", "kind": "bgp"},
+    {"from": "br1:ce-br1:CE", "to": "hub1:pe-hub1:PE", "kind": "tunnel", "description": "IPSec overlay spoke->hub."},
+    {"from": "br2:ce-br2:CE", "to": "hub1:pe-hub1:PE", "kind": "tunnel"},
+    {"from": "br3:ce-br3:CE", "to": "hub1:pe-hub1:PE", "kind": "tunnel", "description": "Overlay tunnel-hub (scenario-C degradation)."},
+    {"from": "hub1:sdwan-ctl:controller", "to": "br1:ce-br1:CE", "kind": "controller", "description": "Policy/intent push (scenario-D drift)."},
+    {"from": "hub1:sdwan-ctl:controller", "to": "br2:ce-br2:CE", "kind": "controller"},
+    {"from": "hub1:sdwan-ctl:controller", "to": "br3:ce-br3:CE", "kind": "controller"}
+  ],
+  "vpns": [
+    {"name": "CORP", "rd": "100:1", "rt": "100:1", "description": "Corporate L3VPN across all sites."},
+    {"name": "OT", "rd": "100:2", "rt": "100:2", "description": "Operational-technology L3VPN (dc1, hub1, br3)."}
+  ],
+  "slas": [
+    {"name": "CORP-VOICE", "metric": "latency_ms", "threshold": 80, "description": "Corporate voice latency budget."},
+    {"name": "CORP-BIZ", "metric": "loss_pct", "threshold": 1.0, "description": "Business-class loss budget."},
+    {"name": "OT-AVAIL", "metric": "tunnel_loss_pct", "threshold": 0.5, "description": "OT overlay availability budget."}
+  ]
+}

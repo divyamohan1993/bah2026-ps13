@@ -1,0 +1,17 @@
+# NETRA operator API (Workstream 6) — extra dependencies beyond the core tier.
+#
+# The integrator folds approved extras into the top-level manifests. These are
+# light, pure-Python-friendly, CPU-only, and need no network at runtime.
+#
+#   fastapi   — the web framework (also pulls in starlette + pydantic).
+#   uvicorn   — ASGI server to run the app (`uvicorn netra.api.app:app`).
+#   httpx     — used by Starlette's TestClient (tests) and any future
+#               LiveProvider HTTP calls to llama-server (OpenAI-compatible).
+#
+# Note: the SSE live-risk stream is implemented with a plain Starlette
+# StreamingResponse, so NO sse-starlette / websockets dependency is required.
+# (If a future LiveProvider prefers websockets, add `websockets` here.)
+
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.27,<1.0
+httpx>=0.27,<1.0

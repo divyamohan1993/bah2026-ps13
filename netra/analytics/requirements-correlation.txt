@@ -1,0 +1,29 @@
+# NETRA — WS4 (Builder 4) extra dependencies: correlation / RCA / risk / explain.
+#
+# Filename is intentionally distinct from any analytics requirements file Builder 3
+# (WS3 forecasting/anomaly/fusion) may add, to avoid a collision when the
+# integrator folds extras into the top-level manifests. Do NOT edit the root
+# requirements.txt directly (see docs/BUILD_PLAN.md ground rules).
+#
+# ── CORE TIER (light, CPU-only, offline; all already in requirements-core.txt) ──
+# Listed here for self-containment so this subtree's needs are explicit. The
+# whole WS4 module + its tests run with ONLY these.
+networkx>=3.1,<4          # topology digital twin: BFS reachability, centrality, WCC/SCC
+numpy>=1.26,<2.2          # vectorised scoring, calibration fallbacks, attributions
+scipy>=1.11,<2            # (transitive via sklearn/statsmodels) stats utilities
+scikit-learn>=1.3,<1.6    # Platt (LogisticRegression) + isotonic calibration; metrics
+statsmodels>=0.14,<0.15   # Granger causality for RCA ranking (grangercausalitytests)
+pydantic>=2.6,<3          # contracts (import-light; from netra.contracts)
+
+# ── OPTIONAL / HEAVY (import-guarded with try/except + deterministic fallback) ──
+# The module AND its tests pass WITHOUT any of these installed. Install only to
+# upgrade attribution/causal-discovery quality.
+#
+# shap>=0.44,<0.47        # TreeSHAP/KernelSHAP attributions (else: deterministic
+#                         # normalized-contribution / permutation-importance fallback).
+#                         # NOTE: shap is already declared in the root core deps; it
+#                         # remains optional HERE so WS4 degrades gracefully if a
+#                         # minimal env omits it.
+# causal-learn>=0.1.3     # PC constraint-based causal discovery to refine RCA ranking
+#                         # (else: pairwise Granger via statsmodels is used).
+#                         # Apache-2.0; heavier transitive deps — keep optional.

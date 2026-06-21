@@ -1,0 +1,121 @@
+# NETRA reference topology — netlab 26.06 source of truth (Workstream 1)
+# =======================================================================
+# One declarative YAML that netlab renders into a Containerlab topology + the
+# per-device FRR/SR Linux configs for the 5-site SD-WAN-over-MPLS reference
+# network (ARCHITECTURE.md §3 Phase 1; research/01 §6).
+#
+#   netlab up   -p clab   topology.yml      # build + deploy via Containerlab
+#   netlab create -p clab topology.yml      # JUST render clab.yml + configs
+#                                           # (the frozen, air-gapped artifact —
+#                                           #  runs WITHOUT netlab installed)
+#   netlab down                             # tear down
+#
+# This MUST stay aligned with netra/datagen/topology.py (device names, roles,
+# sites) so the live SIM source and the synthetic source emit the same entities.
+#
+# IMPORTANT — link syntax (PR-review correction):
+#   netlab links use `interfaces:` (PLURAL) lists of node keys, i.e. proper
+#   two-endpoint links. The short form `- p1-p2` / `- [p1, p2]` also works. Do
+#   NOT use `interface` (singular) or nested endpoint objects.
+
+provider: clab
+defaults.device: frr               # FRRouting everywhere by default (free, OSS)
+
+# Pin the FRR image so the air-gap bundle is reproducible (research/01 §5.2).
+defaults.devices.frr.image: frrouting/frr:v10.3.0
+defaults.devices.srlinux.image: ghcr.io/nokia/srlinux:24.10.1
+
+# Routing/data-plane modules: IS-IS underlay + SR-MPLS + MP-BGP VPNv4 + VRFs.
+# (LDP variant lives in topology-ldp.yml as a second profile.)
+module: [isis, sr, mpls, bgp, vrf, ospf]
+
+isis:
+  type: level-2                    # single L2 area across the core
+bgp:
+  as: 65000                        # provider AS for MP-BGP / VPNv4
+
+# Two L3VPNs prove segmentation (research/01 §2.2). RD/RT 100:1 (CORP) / 100:2 (OT).
+vrfs:
+  CORP:
+    rd: "100:1"
+    import: [CORP]
+    export: [CORP]
+  OT:
+    rd: "100:2"
+    import: [OT]
+    export: [OT]
+
+# Group defaults keep per-node stanzas terse and roles explicit.
+groups:
+  pe_routers:
+    members: [pe_dc1, pe_dc2, pe_hub]
+    module: [isis, sr, mpls, bgp, vrf, ospf]
+  p_routers:
+    members: [p1, p2, p3, p4]
+    module: [isis, sr, mpls]
+  ce_routers:
+    members: [ce_dc, ce_hub, ce_br1, ce_br2, ce_br3]
+    module: [bgp, ospf, vrf]
+
+nodes:
+  # ---- MPLS provider core: 4x P (IS-IS + SR-MPLS transport) ----
+  p1: {device: frr}
+  p2: {device: srlinux}            # SR Linux for premium gNMI streaming telemetry
+  p3: {device: frr}
+  p4: {device: frr}
+
+  # ---- Datacenter: dual PE + CE + route reflector ----
+  pe_dc1: {device: srlinux}        # SR Linux PE (gNMI on-change/sample telemetry)
+  pe_dc2: {device: frr}
+  ce_dc:  {device: frr}
+  rr_dc:                           # MP-BGP VPNv4 route reflector (scenario B target)
+    device: frr
+    bgp.rr: true
+    module: [isis, bgp]
+
+  # ---- HQ / Hub: PE + CE + strongSwan IPSec head-end (scenario A target) ----
+  pe_hub: {device: srlinux}
+  ce_hub: {device: frr}
+
+  # ---- Branch spokes: CE each + strongSwan branch tunnels ----
+  ce_br1: {device: frr}
+  ce_br2: {device: frr}
+  ce_br3: {device: frr}
+
+# Links: `interfaces:` PLURAL, two endpoints each (PR-review correction).
+links:
+  # --- core mesh (P-P), SR-MPLS transport ---
+  - interfaces: [p1, p2]
+    mpls.sr: true
+  - interfaces: [p2, p3]
+    mpls.sr: true
+  - interfaces: [p3, p4]
+    mpls.sr: true
+  - interfaces: [p4, p1]
+    mpls.sr: true
+  - interfaces: [p1, p3]           # diagonal for redundancy / reroute paths
+    mpls.sr: true
+
+  # --- PE uplinks into the core ---
+  - interfaces: [pe_dc1, p1]
+  - interfaces: [pe_dc2, p2]
+  - interfaces: [pe_hub, p3]
+
+  # --- route reflector attaches at the DC PE ---
+  - interfaces: [rr_dc, pe_dc1]
+
+  # --- PE-CE access links, placed in a VRF on the PE side (L3VPN) ---
+  - interfaces: [ce_dc, pe_dc1]
+    vrf: CORP
+  - interfaces: [ce_hub, pe_hub]
+    vrf: CORP
+  - interfaces: [ce_br1, pe_hub]   # branches home onto the hub PE
+    vrf: CORP
+  - interfaces: [ce_br2, pe_hub]
+    vrf: CORP
+  - interfaces: [ce_br3, pe_dc2]   # br3 also carries the OT VRF
+    vrf: OT
+
+# strongSwan GRE-over-IPSec overlay (hub-spoke + partial mesh) and tc QoS are
+# layered onto the rendered clab lab by configs/ + faults/ (netlab does not model
+# IPSec). See configs/strongswan/ and configs/qos/.

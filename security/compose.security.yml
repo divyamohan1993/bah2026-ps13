@@ -1,0 +1,111 @@
+# NETRA — reusable Docker Compose SECURITY fragment (air-gap hardening).
+# ======================================================================
+# This is the SECURITY/PACKAGING workstream's reusable fragment. The
+# INTEGRATOR owns the top-level docker-compose.yml and pulls these stanzas in
+# (see security/networks.md "Integrator wiring"). It defines:
+#   * an `airgap_net` bridge with `internal: true` and NO gateway -> the
+#     copilot / LLM / RAG / analytics / API / UI mesh has no route to any
+#     external interface (air-gap layer 1; ARCHITECTURE.md §8, §9.1);
+#   * `x-netra-hardening` — a YAML anchor of per-service hardening
+#     (cap-drop, no-new-privileges, read-only rootfs, seccomp) the integrator
+#     merges into every service via `<<: *netra-hardening`;
+#   * `x-netra-llm-hardening` — the stricter anchor for the LLM (adds the
+#     seccomp-llm.json profile that denies socket/connect).
+#   * a `falco` service that runs the always-on egress monitor.
+#
+# Compose merges multiple files left-to-right:
+#   docker compose -f docker-compose.yml -f security/compose.security.yml up -d
+# so the integrator can either copy these stanzas into the main file OR layer
+# this file on top at runtime. Either way the network + hardening are applied.
+#
+# NOTE: anchors (x-*) are file-local in Compose; to reuse them the integrator
+# must either (a) define services IN this file, or (b) copy the anchors into the
+# main compose file. We therefore ALSO provide the network definition (which
+# DOES merge across files) plus a fully-defined `falco` service that needs no
+# anchor from the main file. The per-service `<<: *netra-hardening` usage is
+# documented in networks.md for the integrator to apply in the main file.
+
+# ---------------------------------------------------------------------------
+# Reusable hardening anchors (copy into the top-level compose to apply to the
+# netra-* / llama-server / qdrant / grafana / etc. services).
+# ---------------------------------------------------------------------------
+x-netra-hardening: &netra-hardening
+  # Drop ALL Linux capabilities; the app needs none. Add back only what a
+  # specific service proves it requires.
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  # Read-only root filesystem; mount tmpfs for anything that must be writable.
+  read_only: true
+  tmpfs:
+    - /tmp
+  # Attach to the internal, no-egress network.
+  networks:
+    - airgap_net
+  # Sane restart + log rotation (no unbounded disk growth on the appliance).
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+  # Offline-by-design env (belt-and-suspenders vs phone-home).
+  environment:
+    HF_HUB_OFFLINE: "1"
+    TRANSFORMERS_OFFLINE: "1"
+    HF_HUB_DISABLE_TELEMETRY: "1"
+    DO_NOT_TRACK: "1"
+    GRADIO_ANALYTICS_ENABLED: "False"
+    PIP_NO_INDEX: "1"
+
+# Stricter anchor for the LLM process: everything above PLUS the seccomp
+# profile that denies socket/connect, and NET_RAW/NET_ADMIN explicitly off.
+x-netra-llm-hardening: &netra-llm-hardening
+  <<: *netra-hardening
+  security_opt:
+    - no-new-privileges:true
+    - seccomp=./security/seccomp-llm.json
+
+networks:
+  # THE air-gap network. `internal: true` makes Docker create the bridge with
+  # NO gateway and NO NAT/masquerade to the host's external interface, so
+  # attached containers cannot reach the internet by construction. This single
+  # stanza is the highest-leverage egress control and MERGES cleanly across
+  # `-f` compose files, so the integrator gets it for free.
+  airgap_net:
+    name: netra_airgap_net
+    driver: bridge
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.name: br-airgap
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.31.255.0/24   # inside 172.16/12 -> allowed by nftables
+
+services:
+  # Always-on runtime egress monitor. Privileged + host syscalls so it can
+  # observe every container's connect() calls and fire the CRITICAL rule in
+  # security/falco-egress.yaml. This service is fully self-contained (no anchor
+  # from the main file), so layering this fragment is sufficient to add it.
+  falco:
+    image: falcosecurity/falco-no-driver:0.38.2
+    container_name: netra-falco
+    restart: unless-stopped
+    # Falco needs host visibility; modern Falco prefers the modern eBPF probe.
+    privileged: true
+    pid: "host"
+    # Falco itself must NOT be on the internal app net (it watches the host);
+    # it stays on the default bridge but never needs egress in operation.
+    volumes:
+      - /var/run/docker.sock:/host/var/run/docker.sock:ro
+      - /proc:/host/proc:ro
+      - /etc:/host/etc:ro
+      - ./security/falco-egress.yaml:/etc/falco/rules.d/falco-egress.yaml:ro
+    command: ["/usr/bin/falco", "-pk"]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

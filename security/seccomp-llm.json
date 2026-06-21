@@ -1,0 +1,52 @@
+{
+  "comment": "NETRA seccomp profile for the LLM (and any no-network) process. Default action ERRNO(EPERM): every syscall is denied unless explicitly allow-listed below. The network-creating syscalls socket/socketpair/connect/bind/sendto/recvfrom/accept/etc. are DELIBERATELY OMITTED from the allow-list, so the kernel returns EPERM the moment llama-server (or any wrapped process) tries to open a socket. AF_UNIX is also blocked because socket() itself is denied; the OpenAI-compatible HTTP API is reached over the loopback bridge inside the container network namespace, which does not require the process to create new outbound sockets beyond what the server's listener needs -- if you serve over TCP you must instead use the *-listen variant of this profile (see security/networks.md). For pure in-process GGUF inference (llama-cpp-python) NO sockets are needed and this strict profile applies as-is. Pair with --cap-drop=ALL, --security-opt=no-new-privileges, and firejail/bwrap --unshare-net. Use as: docker run --security-opt seccomp=security/seccomp-llm.json ...",
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "defaultErrnoRet": 1,
+  "archMap": [
+    {
+      "architecture": "SCMP_ARCH_X86_64",
+      "subArchitectures": ["SCMP_ARCH_X86", "SCMP_ARCH_X32"]
+    },
+    {
+      "architecture": "SCMP_ARCH_AARCH64",
+      "subArchitectures": ["SCMP_ARCH_ARM"]
+    }
+  ],
+  "syscalls": [
+    {
+      "comment": "Core compute, memory, file, thread and process syscalls required to mmap GGUF weights and run CPU inference. Network syscalls are intentionally NOT present.",
+      "names": [
+        "read", "write", "readv", "writev", "pread64", "pwrite64",
+        "open", "openat", "openat2", "close", "close_range", "lseek",
+        "stat", "fstat", "lstat", "newfstatat", "statx", "fstatfs", "statfs",
+        "access", "faccessat", "faccessat2", "readlink", "readlinkat",
+        "mmap", "munmap", "mremap", "mprotect", "madvise", "mlock", "mlock2",
+        "munlock", "mlockall", "munlockall", "brk", "msync",
+        "rt_sigaction", "rt_sigprocmask", "rt_sigreturn", "rt_sigpending",
+        "rt_sigtimedwait", "rt_sigsuspend", "rt_sigqueueinfo", "sigaltstack",
+        "clone", "clone3", "fork", "vfork", "execve", "execveat",
+        "exit", "exit_group", "wait4", "waitid",
+        "futex", "futex_waitv", "set_robust_list", "get_robust_list",
+        "nanosleep", "clock_nanosleep", "clock_gettime", "clock_getres",
+        "gettimeofday", "time", "times",
+        "getpid", "gettid", "getppid", "getuid", "geteuid", "getgid",
+        "getegid", "getgroups", "getpgrp", "getpgid", "getsid",
+        "getrusage", "getrlimit", "setrlimit", "prlimit64", "getpriority",
+        "sched_getaffinity", "sched_setaffinity", "sched_yield",
+        "sched_getparam", "sched_getscheduler", "sched_get_priority_max",
+        "sched_get_priority_min",
+        "set_tid_address", "set_thread_area", "arch_prctl", "prctl",
+        "ioctl", "fcntl", "dup", "dup2", "dup3", "pipe", "pipe2",
+        "poll", "ppoll", "select", "pselect6", "epoll_create", "epoll_create1",
+        "epoll_ctl", "epoll_wait", "epoll_pwait", "eventfd", "eventfd2",
+        "getcwd", "chdir", "fchdir", "getdents", "getdents64",
+        "getrandom", "sysinfo", "uname", "membarrier",
+        "restart_syscall", "rseq", "tgkill", "tkill", "kill",
+        "fadvise64", "ftruncate", "truncate", "memfd_create",
+        "sched_getattr", "sched_setattr", "umask", "fchmod", "fchmodat",
+        "process_vm_readv"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    }
+  ]
+}

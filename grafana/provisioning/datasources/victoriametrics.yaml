@@ -1,0 +1,33 @@
+# Grafana datasource provisioning (as-code) — NETRA telemetry history.
+#
+# VictoriaMetrics speaks the Prometheus remote-read / PromQL (MetricsQL) API, so
+# we use the built-in `prometheus` datasource type pointed at the VM single-node
+# endpoint on the air-gapped internal bridge. NO external/cloud datasource.
+#
+# Override the URL via the GF_VM_URL env var if VictoriaMetrics runs elsewhere on
+# the internal network (default matches the docker-compose service name).
+apiVersion: 1
+
+datasources:
+  - name: VictoriaMetrics
+    uid: victoriametrics
+    type: prometheus
+    access: proxy
+    url: ${GF_VM_URL:http://victoriametrics:8428}
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+      manageAlerts: true
+      prometheusType: Prometheus
+      timeInterval: "1s"
+    editable: false
+
+  # Optional: Loki for syslog/log lines (NetFlow/syslog wall). Commented by
+  # default so a Loki-less deployment provisions cleanly; uncomment when Loki is
+  # part of the bundle.
+  # - name: Loki
+  #   uid: loki
+  #   type: loki
+  #   access: proxy
+  #   url: ${GF_LOKI_URL:http://loki:3100}
+  #   editable: false

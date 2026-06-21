@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NETRA — Predictive NOC Copilot</title>
+  <!-- All assets are local (air-gapped): no CDNs, no external fonts. -->
+  <link rel="stylesheet" href="./style.css" />
+  <!-- Vendored Cytoscape.js (MIT, 3.30.2) — see ./vendor/README.md -->
+  <script src="./vendor/cytoscape.min.js" defer></script>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">◎</span>
+      <div class="brand-text">
+        <h1>NETRA</h1>
+        <p>Network Early-warning, Telemetry &amp; Reasoning Assistant · <span class="airgap-badge" title="Fully offline — no outbound network dependency">AIR-GAPPED</span></p>
+      </div>
+    </div>
+    <div class="status-strip" id="status-strip">
+      <div class="status-pill" id="pill-provider">provider: …</div>
+      <div class="status-pill" id="pill-incidents">incidents: …</div>
+      <div class="status-pill live" id="pill-live"><span class="dot"></span> live</div>
+      <div class="status-pill" id="pill-clock">—</div>
+    </div>
+  </header>
+
+  <main class="grid">
+    <!-- LEFT: topology + risk timeline -->
+    <section class="panel panel-topology">
+      <div class="panel-head">
+        <h2>Topology &amp; Blast Radius</h2>
+        <div class="legend">
+          <span class="lg lg-root">root cause</span>
+          <span class="lg lg-blast">blast radius</span>
+          <span class="lg lg-low">low</span>
+          <span class="lg lg-high">high risk</span>
+        </div>
+      </div>
+      <div id="cy" class="cy"></div>
+      <p class="hint" id="topo-hint">Click a node to focus its incident.</p>
+    </section>
+
+    <section class="panel panel-timeline">
+      <div class="panel-head">
+        <h2>Risk Timeline <small id="timeline-entity"></small></h2>
+        <span class="proof">risk rises <em>before</em> impact = lead time</span>
+      </div>
+      <canvas id="risk-chart" class="risk-chart" height="180"></canvas>
+    </section>
+
+    <!-- RIGHT: 3-answer card + incident queue + copilot -->
+    <section class="panel panel-answers">
+      <div class="panel-head"><h2>3-Answer Incident Card</h2>
+        <span class="sev-tag" id="answer-sev">—</span>
+      </div>
+      <div id="answers" class="answers">
+        <article class="answer q1">
+          <h3>Q1 · What &amp; When</h3>
+          <div class="q1-headline">
+            <span class="issue" id="q1-issue">—</span>
+            <span class="eta" id="q1-eta">—</span>
+          </div>
+          <div class="confbar" title="calibrated confidence">
+            <div class="confbar-fill" id="q1-conf-fill"></div>
+            <span class="confbar-label" id="q1-conf-label"></span>
+          </div>
+          <div class="scope" id="q1-scope"></div>
+        </article>
+        <article class="answer q2">
+          <h3>Q2 · Why</h3>
+          <p class="rootcause" id="q2-root">—</p>
+          <ul class="signals" id="q2-signals"></ul>
+        </article>
+        <article class="answer q3">
+          <h3>Q3 · Recommended Actions</h3>
+          <ol class="actions" id="q3-actions"></ol>
+        </article>
+      </div>
+    </section>
+
+    <section class="panel panel-queue">
+      <div class="panel-head"><h2>Incident Queue</h2></div>
+      <ul class="queue" id="incident-queue"></ul>
+    </section>
+
+    <section class="panel panel-copilot">
+      <div class="panel-head"><h2>Copilot</h2>
+        <span class="hint" id="copilot-mode"></span>
+      </div>
+      <div class="chat" id="chat-log"></div>
+      <form class="chat-form" id="chat-form" autocomplete="off">
+        <input id="chat-input" type="text"
+               placeholder="Ask: why is the hub uplink at risk and what do I do?" />
+        <button type="submit" id="chat-send">Ask</button>
+      </form>
+      <div class="suggestions" id="chat-suggestions"></div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>NETRA · PS-13 air-gapped predictive copilot</span>
+    <span id="footer-note">offline · all assets local</span>
+  </footer>
+</body>
+</html>

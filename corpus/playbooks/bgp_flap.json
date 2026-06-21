@@ -1,0 +1,57 @@
+{
+  "playbook_id": "PB-BGPFLAP-001",
+  "title": "Contain a BGP route-flap cascade and stabilise convergence",
+  "issue_type": "bgp_route_flap",
+  "trigger_signature": "Bursty bgp_update_rate/withdraw_rate, rising bgp_flap_penalty and adjacency_flap_count, OSPF SPF storm.",
+  "source_ref": "RB-BGPFLAP-001",
+  "actions": [
+    {
+      "step": 1,
+      "description": "Collect BGP and OSPF neighbor and flap statistics.",
+      "command_or_guidance": "show ip bgp summary ; show ip bgp flap-statistics ; show ip ospf neighbor",
+      "requires_approval": false,
+      "urgency": "immediate",
+      "rollback": null,
+      "verification": "Flap statistics returned; flapping peer/prefix visible.",
+      "runbook_ref": "RB-BGPFLAP-001",
+      "approval_state": "auto_ok",
+      "safety_class": "read_only"
+    },
+    {
+      "step": 2,
+      "description": "Identify the flapping prefix and originating peer with the highest churn/penalty.",
+      "command_or_guidance": "show ip bgp flap-statistics | sort flap-count ; correlate with Granger ranking of update stream",
+      "requires_approval": false,
+      "urgency": "immediate",
+      "rollback": null,
+      "verification": "Originating peer and unstable prefix confirmed.",
+      "runbook_ref": "RB-BGPFLAP-001",
+      "approval_state": "auto_ok",
+      "safety_class": "read_only"
+    },
+    {
+      "step": 3,
+      "description": "Enable or tighten BGP route-flap damping on the affected session to suppress the oscillating prefix.",
+      "command_or_guidance": "napalm load_merge: router bgp 64512 / address-family vpnv4 / bgp dampening 15 750 2000 60",
+      "requires_approval": true,
+      "urgency": "immediate",
+      "rollback": "napalm: no bgp dampening on the affected address-family",
+      "verification": "Flap penalty decays below reuse limit; update/withdraw rates fall to baseline.",
+      "runbook_ref": "RB-BGPFLAP-001",
+      "approval_state": "proposed",
+      "safety_class": "config_change"
+    },
+    {
+      "step": 4,
+      "description": "Pin the next-hop or install a static fallback for the critical prefix to preserve reachability while the flap is contained.",
+      "command_or_guidance": "napalm load_merge: ip route <critical-prefix> <stable-next-hop> 200",
+      "requires_approval": true,
+      "urgency": "soon",
+      "rollback": "napalm: remove the static fallback route once convergence is stable",
+      "verification": "Critical prefix reachable with no best-path oscillation for 5 minutes.",
+      "runbook_ref": "RB-BGPFLAP-001",
+      "approval_state": "proposed",
+      "safety_class": "service_impacting"
+    }
+  ]
+}

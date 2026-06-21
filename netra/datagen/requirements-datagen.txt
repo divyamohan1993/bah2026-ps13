@@ -1,0 +1,23 @@
+# netra.datagen — extra dependencies (Workstream 1)
+# ==================================================
+# The synthetic generator and CLI are CPU-light and run on the CORE tier alone.
+# Every dependency below is ALREADY present in requirements-core.txt; this file
+# documents exactly what netra.datagen imports so the integrator can verify the
+# module's footprint in isolation. There are NO net-new dependencies.
+#
+# Hard requirements (imported unconditionally):
+#   - pydantic   : the contracts (netra.contracts) — already core.
+#   - numpy      : deterministic per-stream RNG + baseline/precursor math.
+#
+# Optional (import-guarded; the CLI degrades to JSONL-only if absent):
+#   - pandas     : DataFrame assembly for the parquet dataset export.
+#   - pyarrow    : the parquet engine pandas uses (`df.to_parquet`).
+# If pandas/pyarrow are unavailable, `netra-datagen generate` still writes
+# telemetry.jsonl + labels.jsonl + manifest.json (sufficient for ReplaySource
+# and all downstream loaders); only telemetry.parquet is skipped.
+
+numpy>=1.26,<2.2
+
+# optional — parquet export only (already in core tier):
+pandas>=2.1,<2.3
+pyarrow>=14,<18

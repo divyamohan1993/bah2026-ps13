@@ -1,0 +1,50 @@
+# NETRA — CORE (light) dependency tier
+# =====================================
+# This is the ONLY tier that MUST install on a plain CPU box with no internet
+# and no GPU for the end-to-end demo/eval. Everything here is pure-Python or
+# ships CPU wheels, installs fast, and has zero runtime network calls.
+#
+# The end-to-end demo path (synthetic TelemetrySource -> streaming O(1) features
+# -> predictive ensemble -> fusion/correlation/risk -> template-fallback copilot
+# -> FastAPI/UI) runs on THIS tier alone. The heavy/optional tiers in
+# requirements.txt (deep models, foundation forecasters, the 7B LLM, RAG stack)
+# upgrade quality but are NOT required to run or to pass the air-gap test.
+#
+# Offline install:
+#   pip download -r requirements-core.txt -d wheelhouse   # on a connected host
+#   pip install --no-index --find-links=wheelhouse -r requirements-core.txt
+# Pins use compatible-release ranges known to ship CPU wheels.
+
+# --- contracts + API (always) ---
+pydantic>=2.6,<3
+fastapi>=0.110,<1
+uvicorn[standard]>=0.29,<1
+httpx>=0.27,<1
+python-dateutil>=2.9,<3
+orjson>=3.10,<4
+pyyaml>=6.0,<7
+
+# --- numerics (always) ---
+numpy>=1.26,<2.2
+pandas>=2.1,<2.3
+scipy>=1.11,<2
+
+# --- streaming O(1) feature engine (always) ---
+river>=0.21,<0.22          # Welford/EWMA/ADWIN/Page-Hinkley/Half-Space-Trees/SNARIMAX
+stumpy>=1.12,<1.14         # incremental Matrix Profile (stumpi) — Numba, CPU
+ddsketch>=2.0,<3           # streaming relative-error quantiles (p95/p99)
+nats-py>=2.6,<3            # NATS JetStream client (bus consumer)
+
+# --- predictive ensemble: classical + statistical anomaly + change-point (always) ---
+scikit-learn>=1.3,<1.6     # IsolationForest, calibration (Platt/isotonic), preprocessing
+statsmodels>=0.14,<0.15    # SARIMAX/ETS/STL/VAR/Kalman state-space, Granger
+pyod>=1.1,<3               # COPOD/ECOD/HBOS/iForest + score combination
+ruptures>=1.1,<2           # PELT/BinSeg/Window/KernelCPD change-point
+pymannkendall>=1.4,<2      # Mann-Kendall trend + Theil-Sen slope (time-to-impact)
+lifelines>=0.27,<0.31      # Cox PH / survival -> time-to-event lead time
+
+# --- correlation / topology graph (always) ---
+networkx>=3.1,<4           # digital-twin graph: correlation, blast-radius (BFS), centrality
+
+# --- explainability (always; pure-Python/Numba) ---
+shap>=0.44,<0.47           # TreeSHAP attributions -> ContributingSignal (Q2)

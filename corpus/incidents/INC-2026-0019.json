@@ -1,0 +1,26 @@
+{
+  "incident_id": "INC-2026-0019",
+  "issue_type": "policy_drift",
+  "scenario_id": "D_policy_drift",
+  "title": "Golden-config drift after an out-of-window controller push",
+  "site": "hub1",
+  "device": "sdwan-ctl",
+  "entity_id": "hub1:sdwan-ctl:controller",
+  "occurred_at": "2026-05-21T02:30:00Z",
+  "detected_lead_time_minutes": 1,
+  "symptom": "config_drift_score stepped up simultaneously across hub1, br1, br2 and br3 with no hardware alarm; path_asymmetry rose as forwarding diverged from intent. The step (not ramp) onset and multi-site simultaneity were the discriminators.",
+  "root_cause": "An out-of-maintenance-window controller commit pushed a mis-scoped app-route policy to all sites at once, drifting the running configuration away from the golden baseline with no physical fault involved.",
+  "contributing_signals": [
+    "config_drift_score step increase across multiple sites (BOCPD/PELT)",
+    "path_asymmetry rising simultaneously",
+    "no hardware alarm — discriminator vs A/B/C"
+  ],
+  "resolution": "Reverted the offending controller commit to the last-known-good policy and re-pushed golden to the affected sites; config_drift_score returned to zero and metrics normalised. An audit record of the approver was retained and change-management was notified.",
+  "playbook_used": "PB-POLICYDRIFT-001",
+  "timeline": [
+    {"t": "02:30Z", "event": "BOCPD/PELT step detector + ADWIN fire on config_drift_score across sites; Granger ties it to the controller commit."},
+    {"t": "02:31Z", "event": "Config diff vs golden confirms simultaneous multi-site drift, no hardware alarm."},
+    {"t": "02:32Z", "event": "Offending commit identified from the controller audit log; revert approved."},
+    {"t": "02:34Z", "event": "Last-known-good re-applied; drift score returns to zero."}
+  ]
+}

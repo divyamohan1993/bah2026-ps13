@@ -1,0 +1,38 @@
+# scrape.yml — Prometheus-style scrape config for vmagent / VictoriaMetrics
+# ============================================================================
+# Mounted into the vmagent (and optionally VictoriaMetrics) container by
+# compose.telemetry.yml. Single source of truth for what gets pulled into the
+# TSDB. Targets use compose service DNS names on the internal airgap_net.
+# All targets are internal; no external endpoint is scraped (air-gap).
+# ============================================================================
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  external_labels:
+    monitor: netra-telemetry
+
+scrape_configs:
+  # gnmic Prometheus output (gNMI streaming telemetry -> metrics)
+  - job_name: gnmic
+    scrape_interval: 2s
+    static_configs:
+      - targets: ["gnmic:9273"]
+        labels:
+          source: sim
+          pipeline: gnmic
+
+  # NATS monitoring (bus health, consumer lag) — needs prometheus-nats-exporter
+  - job_name: nats
+    scrape_interval: 15s
+    static_configs:
+      - targets: ["nats:8222"]
+        labels:
+          component: bus
+
+  # VictoriaMetrics self-monitoring
+  - job_name: victoriametrics
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["victoriametrics:8428"]
+        labels:
+          component: tsdb

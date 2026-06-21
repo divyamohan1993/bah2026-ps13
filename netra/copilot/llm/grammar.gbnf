@@ -1,0 +1,53 @@
+# GBNF grammar for netra.contracts.CopilotResponse (LLM-emitted subset).
+# Generated from the Pydantic contract by netra.copilot.llm.grammar.copilot_gbnf().
+# Guarantees llama-server emits schema-valid JSON committed to the closed
+# IssueType / Urgency vocabularies. Keep in lockstep with the contract.
+
+root        ::= "{" ws
+                  "\"predicted_issue\":" ws issue "," ws
+                  "\"confidence_score\":" ws unit "," ws
+                  "\"time_to_impact_minutes\":" ws ttimpact "," ws
+                  "\"root_cause_hypothesis\":" ws string "," ws
+                  "\"contributing_signals\":" ws signals "," ws
+                  "\"affected_scope\":" ws scope "," ws
+                  "\"recommended_actions\":" ws actions "," ws
+                  "\"citations\":" ws citations "," ws
+                  "\"insufficient_context\":" ws boolean ws
+                "}"
+
+issue       ::= "\"interface_congestion\"" | "\"latency_drift\"" | "\"bgp_route_flap\"" | "\"ospf_convergence_stress\"" | "\"tunnel_degradation\"" | "\"mpls_underlay_failure\"" | "\"policy_drift\"" | "\"path_asymmetry\"" | "\"none\""
+urgency     ::= "\"immediate\"" | "\"soon\"" | "\"monitor\""
+
+# confidence_score is a probability in [0,1]; the grammar admits any JSON number
+# and the client clamps/derives the authoritative value from the analytics engine.
+unit        ::= number
+ttimpact    ::= "null" | number
+
+signals     ::= "[" ws ( signal ( "," ws signal )* ws )? "]"
+signal      ::= "{" ws
+                  "\"signal\":" ws string "," ws
+                  "\"observation\":" ws string "," ws
+                  "\"shap_contribution\":" ws ( "null" | number ) ws
+                "}"
+
+scope       ::= "{" ws
+                  "\"sites\":" ws strlist "," ws
+                  "\"devices\":" ws strlist "," ws
+                  "\"services_or_vpns\":" ws strlist ws
+                "}"
+
+actions     ::= "[" ws action ( "," ws action )* ws "]"
+action      ::= "{" ws
+                  "\"step\":" ws string "," ws
+                  "\"runbook_ref\":" ws ( "null" | string ) "," ws
+                  "\"urgency\":" ws urgency "," ws
+                  "\"requires_approval\":" ws boolean ws
+                "}"
+
+citations   ::= "[" ws string ( "," ws string )* ws "]"
+strlist     ::= "[" ws ( string ( "," ws string )* ws )? "]"
+
+boolean     ::= "true" | "false"
+number      ::= "-"? ( "0" | [1-9] [0-9]* ) ( "." [0-9]+ )? ( [eE] [-+]? [0-9]+ )?
+string      ::= "\"" ( [^"\\] | "\\" . )* "\""
+ws          ::= [ \t\n]*

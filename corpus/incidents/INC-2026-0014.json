@@ -1,0 +1,26 @@
+{
+  "incident_id": "INC-2026-0014",
+  "issue_type": "tunnel_degradation",
+  "scenario_id": "C_tunnel_degradation",
+  "title": "Branch-3 overlay jitter from a flapping core LSP",
+  "site": "br3",
+  "device": "ce-br3",
+  "entity_id": "br3:ce-br3:CE:tunnel-hub",
+  "occurred_at": "2026-05-03T14:02:00Z",
+  "detected_lead_time_minutes": 6,
+  "symptom": "Intermittent tunnel_loss_pct and tunnel_jitter_ms spikes on ce-br3 tunnel-hub, short BFD flaps, and an irregular tunnel_rekey_interval_s — all bursty rather than monotonic.",
+  "root_cause": "A flapping label-switched path through core P-router p2 caused intermittent underlay loss for the IPSec/GRE overlay; a stuck IPSec SA then produced anomalous rekey intervals that compounded the micro-outages.",
+  "contributing_signals": [
+    "tunnel_loss_pct intermittent spikes (Half-Space-Trees / Spectral Residual)",
+    "tunnel_jitter_ms spikes correlated with loss bursts",
+    "tunnel_rekey_interval_s drifting / irregular"
+  ],
+  "resolution": "Rerouted the LSP onto a healthy TE path avoiding p2 and triggered a controlled IPSec rekey to clear the stuck SA; loss and jitter returned to baseline and held. The faulty core link feeding p2 was scheduled for repair.",
+  "playbook_used": "PB-TUNNEL-001",
+  "timeline": [
+    {"t": "14:02Z", "event": "HST/COPOD on {loss,jitter,rekey} vector + stumpi discord fire on intermittent spikes."},
+    {"t": "14:05Z", "event": "Loss bursts correlated to LSP via p2 on the topology graph."},
+    {"t": "14:06Z", "event": "LSP reroute + controlled rekey approved and applied."},
+    {"t": "14:08Z", "event": "tunnel_loss_pct / tunnel_jitter_ms recover to baseline."}
+  ]
+}

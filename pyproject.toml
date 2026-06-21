@@ -1,0 +1,141 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "netra"
+version = "0.1.0"
+description = "NETRA — air-gapped offline predictive NOC copilot for secure SD-WAN/MPLS operations (PS-13)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "NETRA Team" }]
+keywords = [
+    "noc", "mpls", "sd-wan", "air-gapped", "offline-llm", "predictive-analytics",
+    "anomaly-detection", "time-series", "rag", "copilot",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Intended Audience :: Telecommunications Industry",
+    "Topic :: System :: Networking :: Monitoring",
+]
+
+# Only the light CORE tier is declared as install_requires so that
+# `pip install -e .` on a plain CPU box pulls exactly the dependencies the
+# end-to-end demo needs. Heavy/optional capabilities are extras (below); the
+# full pinned set lives in requirements.txt / requirements-core.txt.
+dependencies = [
+    "pydantic>=2.6,<3",
+    "fastapi>=0.110,<1",
+    "uvicorn[standard]>=0.29,<1",
+    "httpx>=0.27,<1",
+    "pyyaml>=6.0,<7",
+    "numpy>=1.26,<2.2",
+    "pandas>=2.1,<2.3",
+    "scipy>=1.11,<2",
+    "river>=0.21,<0.22",
+    "stumpy>=1.12,<1.14",
+    "ddsketch>=2.0,<3",
+    "nats-py>=2.6,<3",
+    "scikit-learn>=1.3,<1.6",
+    "statsmodels>=0.14,<0.15",
+    "pyod>=1.1,<3",
+    "ruptures>=1.1,<2",
+    "pymannkendall>=1.4,<2",
+    "lifelines>=0.27,<0.31",
+    "networkx>=3.1,<4",
+    "shap>=0.44,<0.47",
+]
+
+[project.optional-dependencies]
+# Heavy global/deep/foundation forecasting + deep anomaly detection.
+forecasting = [
+    "lightgbm>=4.1,<5",
+    "xgboost>=2.0,<3",
+    "catboost>=1.2,<2",
+    "statsforecast>=1.7,<2",
+    "mlforecast>=0.13,<1",
+    "mapie>=0.8,<0.10",
+    "scikit-survival>=0.22,<0.24",
+    "torch>=2.1,<2.6",
+    "neuralforecast>=1.7,<2",
+    "deepod>=0.4,<1",
+    "chronos-forecasting>=1.4,<2",
+]
+# Offline LLM + local RAG stack (graceful-degradation: copilot falls back to a
+# deterministic template emitting the same CopilotResponse when absent).
+llm = [
+    "llama-cpp-python>=0.2.70,<0.4",
+    "sentence-transformers>=2.6,<4",
+    "FlagEmbedding>=1.2,<2",
+    "qdrant-client>=1.8,<2",
+    "bm25s>=0.1.10,<1",
+    "transformers>=4.40,<5",
+    "huggingface-hub>=0.23,<1",
+    "instructor>=1.2,<2",
+]
+dev = [
+    "pytest>=8.0,<9",
+    "pytest-asyncio>=0.23,<1",
+    "ruff>=0.4,<1",
+    "mypy>=1.9,<2",
+    "hypothesis>=6.100,<7",
+    "deepeval>=0.21,<1",
+    "ragas>=0.1,<0.3",
+    "cyclonedx-bom>=4.0,<6",
+]
+# Everything (for a fully-provisioned GPU box / full offline bundle build).
+all = [
+    "netra[forecasting,llm,dev]",
+]
+
+[tool.setuptools.packages.find]
+include = ["netra*"]
+exclude = ["tests*", "sim*", "telemetry*", "ui*", "security*", "scripts*", "grafana*", "corpus*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# Non-source / vendored / generated trees: never linted.
+extend-exclude = [
+    "research",
+    "bundles",
+    "models",
+    "ui/vendor",
+    ".github",
+    "*.gguf",
+]
+
+[tool.ruff.lint]
+# Pragmatic, high-signal set: pycodestyle (E/W), pyflakes (F: real bugs like
+# undefined / unused names), isort (I), pyupgrade (UP), bugbear (B).
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = [
+    "E501",   # line-too-long — tolerated in docstrings / tabular examples
+    "B008",   # function-call-in-default — this *is* the FastAPI `Depends(...)` idiom
+    "E741",   # ambiguous variable name (l/I/O) — used as a loop var in a few tests
+    "UP042",  # str+Enum vs StrEnum — `(str, Enum)` is valid & has stable str()/JSON
+              # semantics the contract enums rely on; not a behavioural rewrite we want
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Package __init__ files curate the public surface via re-exports.
+"__init__.py" = ["F401", "F403"]
+# Tests legitimately re-import / shadow fixtures and place imports after setup.
+"tests/*" = ["F811", "F401", "E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+asyncio_mode = "auto"
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_ignores = true
+plugins = ["pydantic.mypy"]
+# Heavy optional libs lack stubs; don't fail the build over them.
+ignore_missing_imports = true
