@@ -1,0 +1,66 @@
+# victoriametrics.yaml — single-node time-series history (NETRA Phase 2, WS2)
+# ============================================================================
+# VictoriaMetrics single-node: best ingestion/query per CPU at high cardinality,
+# ~70x less disk than TimescaleDB, PromQL/MetricsQL, single binary (research 02
+# §2.2). This file documents the flags/scrape config; VictoriaMetrics is a binary
+# (not a YAML-configured daemon), so the "config" is (a) the launch flags and
+# (b) the optional Prometheus-style scrape file (`promscrape.config`).
+#
+# Network telemetry is HIGH-CARDINALITY (per-device × per-interface × per-metric
+# = thousands–millions of series); VM's inverted index is built for it and barely
+# degrades 400K -> 40M series.
+#
+# Air-gap: VM has no phone-home/telemetry; -datasource/-remoteWrite all point at
+# localhost. Disable usage stats explicitly below.
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# Launch flags (single-node victoria-metrics binary). Render into the compose
+# `command:` (see compose.telemetry.yml) or a systemd unit.
+# ---------------------------------------------------------------------------
+victoriametrics:
+  flags:
+    - "-storageDataPath=/victoria-metrics-data"   # on-disk TSDB
+    - "-retentionPeriod=3"                          # months of history to keep
+    - "-httpListenAddr=:8428"                       # PromQL/MetricsQL + remote_write
+    - "-search.maxConcurrentRequests=16"
+    - "-search.maxQueryDuration=60s"
+    - "-memory.allowedPercent=60"                   # cap RAM on a shared host
+    - "-dedup.minScrapeInterval=1s"                 # dedupe identical samples
+    - "-promscrape.config=/etc/victoriametrics/scrape.yml"
+    - "-loggerLevel=INFO"
+    # AIR-GAP: do not emit anonymous usage statistics anywhere.
+    - "-usagecollector.disable=true"
+
+  # Ingest endpoints exposed on :8428 (all localhost-bound in the air-gap):
+  #   /api/v1/write              Prometheus remote_write (Telegraf, vmagent)
+  #   /api/v1/import/prometheus  Prometheus exposition import
+  #   /influx/write              InfluxDB line protocol (optional)
+  #   /api/v1/query[_range]      PromQL/MetricsQL (Grafana, Phase-3 trainers)
+
+# ---------------------------------------------------------------------------
+# Prometheus-style scrape config (promscrape.config) — pulls the gnmic
+# Prometheus endpoint into VM. Telegraf pushes via remote_write instead, so it
+# is not scraped here.
+# ---------------------------------------------------------------------------
+scrape_configs:
+  - job_name: gnmic
+    scrape_interval: 2s            # match gNMI sample cadence
+    static_configs:
+      - targets: ["127.0.0.1:9273"]   # gnmic prometheus output (gnmic.yaml)
+        labels:
+          source: sim
+          pipeline: gnmic
+
+  - job_name: nats
+    scrape_interval: 15s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["127.0.0.1:7777"]   # NATS prometheus-nats-exporter (optional)
+        labels:
+          component: bus
+
+  - job_name: victoriametrics-self
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["127.0.0.1:8428"]   # VM self-monitoring

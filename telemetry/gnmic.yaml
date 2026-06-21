@@ -1,0 +1,131 @@
+# gnmic.yaml — gNMI streaming-telemetry collector (NETRA Phase 2, Workstream 2)
+# ============================================================================
+# Single statically-linked Go binary, no cloud dependencies. Subscribes to the
+# Nokia SR Linux / OpenConfig telemetry nodes in the Containerlab lab and fans
+# the deltas onto NATS JetStream (for the O(1) streaming feature engine) and a
+# Prometheus endpoint scraped into VictoriaMetrics (history).
+#
+# Why gNMI on-change: SNMP polls at fixed intervals (30-60 s), so a 5-second
+# precursor is invisible until the next poll. gNMI `on-change` pushes the delta
+# the INSTANT a counter/state flips, and `sample(1s)` gives sub-second cadence —
+# the raw material for short-horizon time-to-impact (research 02 §1.3).
+#
+# Run (offline, inside the air-gap):
+#   gnmic --config telemetry/gnmic.yaml subscribe
+#
+# Air-gap: every target is an RFC1918 lab address; no external endpoint appears
+# anywhere in this file. TLS is disabled for the lab (`insecure: true`); in a
+# hardened deployment mount per-device certs instead.
+
+# ---------------------------------------------------------------------------
+# Targets — the SR Linux PE/P telemetry nodes (gNMI on :57400 by default).
+# Names follow the topology in sim/ (5 sites, ~20 nodes). Username/password are
+# lab defaults; override via env (${GNMIC_USERNAME}) when bundling.
+# ---------------------------------------------------------------------------
+username: ${GNMIC_USERNAME:=admin}
+password: ${GNMIC_PASSWORD:=admin}
+insecure: true            # lab only — use `tls:` + mounted certs in production
+timeout: 10s
+encoding: json_ietf
+log: true
+
+targets:
+  # DC dual-PE (VPNv4 edge) — scenario B reroute origin candidates
+  pe-dc1.lab:57400:
+    name: pe-dc1
+  pe-dc2.lab:57400:
+    name: pe-dc2
+  # HQ/Hub aggregation PE — scenario A congestion target
+  pe-hub1.lab:57400:
+    name: pe-hub1
+  # MPLS core P routers (IS-IS + SR-MPLS) — scenario C underlay
+  p1.lab:57400:
+    name: p1
+  p2.lab:57400:
+    name: p2
+  # Route Reflector — scenario B flap target
+  rr1.lab:57400:
+    name: rr1
+
+# ---------------------------------------------------------------------------
+# Subscriptions — the five PS-13 signal classes that gNMI can stream natively.
+# `on-change` for discrete state (oper-status, BGP/OSPF neighbour state) so a
+# flap is delivered immediately; `sample(1s)` for monotonic counters.
+# ---------------------------------------------------------------------------
+subscriptions:
+  if-counters:
+    paths:
+      - /interfaces/interface/state/counters
+      - /interfaces/interface/state/oper-status
+      - /interfaces/interface/state/admin-status
+    stream-mode: sample
+    sample-interval: 1s
+    # suppress redundant identical samples to cut bus volume
+    suppress-redundant: true
+    heartbeat-interval: 30s
+
+  if-oper-state:
+    paths:
+      - /interfaces/interface/state/oper-status
+    stream-mode: on-change   # link up/down delivered the instant it changes
+
+  bgp-neighbor-state:
+    paths:
+      - /network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/state/session-state
+      - /network-instances/network-instance/protocols/protocol/bgp/neighbors/neighbor/state/messages
+    stream-mode: on-change   # BGP adjacency flaps + UPDATE/withdraw churn (scenario B)
+
+  ospf-adjacency:
+    paths:
+      - /network-instances/network-instance/protocols/protocol/ospfv2/areas/area/interfaces/interface/state
+    stream-mode: on-change   # OSPF adjacency / SPF stress (scenario B/D)
+
+  mpls-lsp-state:
+    paths:
+      - /network-instances/network-instance/mpls/lsps/constrained-path/tunnels/tunnel/state
+    stream-mode: sample
+    sample-interval: 2s      # LSP path churn (scenario C)
+
+# ---------------------------------------------------------------------------
+# Processors — light, in-collector normalisation toward the TelemetryRecord
+# contract (tag the source so the bus consumer sets TelemetrySourceKind.SIM).
+# ---------------------------------------------------------------------------
+processors:
+  add-source-tag:
+    event-add-tag:
+      add:
+        source: sim
+        pipeline: gnmic
+
+# ---------------------------------------------------------------------------
+# Outputs — fan-out to NATS JetStream (streaming features) + Prometheus (history
+# via VictoriaMetrics scrape / remote-write). Subjects map onto `telemetry.>`.
+# ---------------------------------------------------------------------------
+outputs:
+  to-nats:
+    type: nats
+    address: 127.0.0.1:4222
+    subject: telemetry.gnmi      # JetStream TELEMETRY stream captures telemetry.>
+    format: event
+    num-workers: 2
+    write-timeout: 5s
+    # NOTE: telemetry is at-least-once + idempotent on write; see
+    # nats-streams.sh for the stream/consumer delivery-semantics contract.
+    event-processors:
+      - add-source-tag
+
+  to-prometheus:
+    type: prometheus
+    listen: :9273                # scraped by vmagent -> VictoriaMetrics (history)
+    path: /metrics
+    metric-prefix: gnmi
+    append-subscription-name: true
+
+# ---------------------------------------------------------------------------
+# Clustering (optional) — gnmic supports a leader-elected cluster via its REST
+# API if the lab grows past one collector; single-node is the default here.
+# ---------------------------------------------------------------------------
+# clustering:
+#   cluster-name: netra-gnmic
+#   locker:
+#     type: consul            # only if a local locker is bundled; omit for single-node

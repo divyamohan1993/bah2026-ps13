@@ -1,0 +1,22 @@
+# netra.streaming — EXTRA dependencies (beyond the CORE tier)
+# ===========================================================
+# The streaming O(1) feature engine runs entirely on the CORE tier already
+# pinned in ../../requirements-core.txt:
+#
+#     river        (Welford/EWMA/ADWIN/Page-Hinkley/KSWIN/Half-Space-Trees)
+#     stumpy       (incremental Matrix Profile — stumpi)
+#     ddsketch     (streaming relative-error quantiles p95/p99)
+#     nats-py      (NATS JetStream consumer; optional transport)
+#     numpy        (stumpy backing; light, CPU)
+#     pydantic     (contracts)
+#
+# The ONLY extra dependency below is optional and import-guarded: if it is
+# absent, features.py falls back to a small built-in Count-Min Sketch /
+# HyperLogLog implementation, so the CPU-only path runs unchanged. The
+# integrator may fold this into the optional tier of the top-level manifest.
+
+# Probabilistic sketches for heavy-hitter (Count-Min) + cardinality
+# (HyperLogLog) used by TopTalkerChurn / top-talker cardinality features.
+# Pure-Python, no compiled extensions, installs fast, zero network calls.
+# FALLBACK: a compact built-in CMS/HLL in features.py if this is not installed.
+pyprobables>=0.6,<1

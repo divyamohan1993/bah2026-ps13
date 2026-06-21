@@ -1,0 +1,26 @@
+# vmagent.yaml — VictoriaMetrics agent with on-disk buffering (Phase 2, WS2)
+# ============================================================================
+# vmagent sits in front of VictoriaMetrics: it scrapes/relays metrics and
+# BUFFERS THEM ON DISK when the destination is briefly unavailable — exactly what
+# a constrained air-gapped node needs so a VM restart or burst never loses data
+# (research 02 §2.2). It typically uses less CPU/RAM/disk IO than the Prometheus
+# agent.
+#
+# Optional: Telegraf can remote_write straight to VM (telegraf.conf). Insert
+# vmagent when you want the on-disk buffer / relay tier in between.
+#
+# Air-gap: -remoteWrite.url points only at the localhost VM; no external sink.
+# ============================================================================
+vmagent:
+  flags:
+    - "-remoteWrite.url=http://127.0.0.1:8428/api/v1/write"
+    - "-remoteWrite.tmpDataPath=/vmagent-buffer"     # ON-DISK buffer (outage-safe)
+    - "-remoteWrite.maxDiskUsagePerURL=2GB"           # cap the buffer
+    - "-remoteWrite.maxBlockSize=8MB"
+    - "-promscrape.config=/etc/victoriametrics/scrape.yml"
+    - "-memory.allowedPercent=40"
+    - "-loggerLevel=INFO"
+
+  # vmagent shares the same scrape config as VictoriaMetrics
+  # (telemetry/victoriametrics.yaml `scrape_configs`). Point both at the same
+  # /etc/victoriametrics/scrape.yml mount so there is one source of truth.

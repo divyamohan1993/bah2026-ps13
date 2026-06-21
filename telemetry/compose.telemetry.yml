@@ -1,0 +1,147 @@
+# compose.telemetry.yml — Phase 2 telemetry services (NETRA, Workstream 2)
+# ============================================================================
+# The collector + bus + store services for the telemetry pipeline. The
+# INTEGRATOR merges these into the top-level docker-compose.yml (owned by WS7),
+# attaching them to the shared `airgap_net` `internal: true` bridge per
+# ARCHITECTURE.md §9.1. WS7 adds the per-service hardening (cap-drop,
+# no-new-privileges, seccomp) and finalises published ports.
+#
+# Tier: `nats` + `victoriametrics` are CORE; `gnmic` + `telegraf` + `nfacctd`
+# are SIM-ONLY (the synthetic source path needs neither — the FeatureEngine reads
+# the datagen TelemetrySource directly via netra.streaming.sources.drive_engine).
+#
+# Air-gap: all services run on the internal bridge with NO route to the host's
+# external interface. Only Grafana/UI/API ports (owned by WS6) are published to
+# 127.0.0.1 in the top-level compose; nothing here exposes a public port.
+#
+# Image pins are compatible-release tags; WS7 replaces them with SHA-256-pinned
+# digests in the offline bundle (docker save).
+# ============================================================================
+version: "3.9"
+
+# NOTE: the integrator defines `airgap_net` once at the top level as:
+#   networks: { airgap_net: { driver: bridge, internal: true } }
+# It is declared `external: true` here so this fragment composes cleanly on its
+# own AND merges without redefining the network.
+networks:
+  airgap_net:
+    external: true
+
+volumes:
+  nats_jetstream:       # JetStream persistent streams (file storage)
+  vm_data:              # VictoriaMetrics on-disk TSDB
+  vmagent_buffer:       # vmagent on-disk remote_write buffer (outage-safe)
+
+services:
+
+  # --- NATS JetStream — telemetry + alert bus (CORE) ------------------------
+  nats:
+    image: nats:2.10-alpine
+    command:
+      - "-js"                              # enable JetStream
+      - "-sd"
+      - "/data/jetstream"                  # persistent store dir
+      - "-m"
+      - "8222"                             # monitoring endpoint (internal only)
+    volumes:
+      - nats_jetstream:/data/jetstream
+    networks: [airgap_net]
+    restart: unless-stopped
+    healthcheck:
+      # JetStream readiness via the monitoring endpoint
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8222/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # --- one-shot: provision JetStream streams/consumers (CORE) ---------------
+  # Runs nats-streams.sh against the broker once it is healthy, then exits.
+  nats-init:
+    image: natsio/nats-box:latest
+    depends_on:
+      nats:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/scripts/nats-streams.sh"]
+    environment:
+      NATS_URL: "nats://nats:4222"
+    volumes:
+      - ./telemetry/nats-streams.sh:/scripts/nats-streams.sh:ro
+    networks: [airgap_net]
+    restart: "no"
+
+  # --- VictoriaMetrics — time-series history (CORE) -------------------------
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.97.1
+    command:
+      - "-storageDataPath=/victoria-metrics-data"
+      - "-retentionPeriod=3"               # months
+      - "-httpListenAddr=:8428"
+      - "-dedup.minScrapeInterval=1s"
+      - "-memory.allowedPercent=60"
+      - "-usagecollector.disable=true"     # AIR-GAP: no anonymous usage stats
+    volumes:
+      - vm_data:/victoria-metrics-data
+    networks: [airgap_net]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8428/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+
+  # --- vmagent — scrape + on-disk buffered remote_write (CORE) --------------
+  vmagent:
+    image: victoriametrics/vmagent:v1.97.1
+    depends_on:
+      victoriametrics:
+        condition: service_healthy
+    command:
+      - "-remoteWrite.url=http://victoriametrics:8428/api/v1/write"
+      - "-remoteWrite.tmpDataPath=/vmagent-buffer"
+      - "-remoteWrite.maxDiskUsagePerURL=2GB"
+      - "-promscrape.config=/etc/victoriametrics/scrape.yml"
+      - "-memory.allowedPercent=40"
+    volumes:
+      - vmagent_buffer:/vmagent-buffer
+      - ./telemetry/scrape.yml:/etc/victoriametrics/scrape.yml:ro
+    networks: [airgap_net]
+    restart: unless-stopped
+
+  # --- gnmic — gNMI streaming collector (SIM-ONLY) --------------------------
+  gnmic:
+    image: ghcr.io/openconfig/gnmic:0.38.2
+    depends_on:
+      nats:
+        condition: service_healthy
+    command: ["subscribe", "--config", "/app/gnmic.yaml"]
+    volumes:
+      - ./telemetry/gnmic.yaml:/app/gnmic.yaml:ro
+    networks: [airgap_net]
+    restart: unless-stopped
+    profiles: ["sim"]                      # only started for the live-sim source
+
+  # --- Telegraf — SNMP / syslog / NetFlow / sFlow collector (SIM-ONLY) ------
+  telegraf:
+    image: telegraf:1.30
+    depends_on:
+      nats:
+        condition: service_healthy
+      victoriametrics:
+        condition: service_healthy
+    volumes:
+      - ./telemetry/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+    networks: [airgap_net]
+    restart: unless-stopped
+    profiles: ["sim"]
+
+  # --- pmacct/nfacctd — high-volume flow accounting (SIM-ONLY, OPTIONAL) ----
+  nfacctd:
+    image: pmacct/nfacctd:v1.7.8
+    depends_on:
+      nats:
+        condition: service_healthy
+    volumes:
+      - ./telemetry/pmacct/nfacctd.conf:/etc/pmacct/nfacctd.conf:ro
+    networks: [airgap_net]
+    restart: unless-stopped
+    profiles: ["sim", "flow-heavy"]        # only when flow volume warrants it
