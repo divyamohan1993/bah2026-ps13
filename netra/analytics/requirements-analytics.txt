@@ -1,0 +1,27 @@
+# NETRA — WS3 (Builder 3) extra dependencies: forecasting / anomaly / fusion.
+#
+# Filename is intentionally distinct from any other workstream's requirements file
+# so the integrator can fold extras into the top-level manifests without a
+# collision. Do NOT edit the root requirements.txt directly (see docs ground rules).
+#
+# ── CORE TIER (light, CPU-only, offline; all already in requirements-core.txt) ──
+# Listed here for self-containment so this subtree's needs are explicit. The whole
+# WS3 analytics engine + tests/test_analytics.py run with ONLY these.
+numpy>=1.26,<2.2          # vectorised forecasting/scoring, EVT GPD fit, fusion math
+scipy>=1.11,<2            # genpareto/theilslopes/norm CDF; EVT + Theil-Sen TTI
+pandas>=2.0,<2.3          # tabular features for survival/calibration fit
+scikit-learn>=1.3,<1.6   # Platt (LogisticRegression) + isotonic calibration; iForest/LOF/PCA
+statsmodels>=0.14,<0.15  # STL/ETS/Holt-Winters classical forecasters
+river>=0.21,<0.22        # streaming Half-Space-Trees, ADWIN/Page-Hinkley/KSWIN drift
+pydantic>=2.6,<3         # contracts (import-light; from netra.contracts)
+
+# ── OPTIONAL / HEAVY (import-guarded with try/except + deterministic fallback) ──
+# The analytics package AND tests/test_analytics.py pass WITHOUT any of these
+# installed (each method degrades to a NumPy/SciPy fallback or self-skips). Install
+# only to upgrade member quality / enable the heavy tier.
+ruptures>=1.1,<2          # offline PELT/BinSeg change-point segmentation (else: CUSUM fallback)
+pyod>=1.1,<2              # COPOD/ECOD/HBOS/IsolationForest backends (else: NumPy ECDF/hist fallback)
+stumpy>=1.12,<2           # matrix-profile discord (else: sliding-window NN-distance fallback)
+lifelines>=0.27,<0.30     # Cox proportional-hazards survival TTI (MIT — never scikit-survival/GPL)
+# torch>=2.1,<3           # optional deep autoencoder detector (skipped entirely if absent)
+# chronos-forecasting     # optional Chronos-Bolt foundation forecaster (local weights only)
