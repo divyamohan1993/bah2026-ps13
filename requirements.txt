@@ -1,0 +1,108 @@
+# NETRA — FULL dependency manifest (all tiers)
+# ============================================
+# Organised into tiers by weight. The CORE tier is the contract for the
+# CPU-only / no-GPU / no-internet demo and is duplicated (verbatim pins) in
+# requirements-core.txt — keep the two in sync. The OPTIONAL-HEAVY tiers add
+# deep models, foundation forecasters, the offline 7B LLM and the RAG stack;
+# they materially improve quality but the system DEGRADES GRACEFULLY without
+# them (deep models skipped, copilot falls back to a deterministic template that
+# emits the same CopilotResponse schema).
+#
+# AIR-GAP RULE: nothing here calls a cloud API at runtime. `nixtla` (TimeGPT) is
+# deliberately EXCLUDED — it is a cloud service and must never enter the runtime
+# path. HF weights for the heavy tiers are pre-downloaded once and loaded by
+# local path with HF_HUB_OFFLINE=1 / TRANSFORMERS_OFFLINE=1.
+#
+# Offline install (full):
+#   pip download -r requirements.txt -d wheelhouse        # connected host
+#   pip install --no-index --find-links=wheelhouse -r requirements.txt
+# Per-module extra deps may live in netra/<module>/requirements-<module>.txt and
+# are folded in by the integrator.
+
+# ============================================================================
+# --- core (always) --- (mirror of requirements-core.txt; MUST install on CPU)
+# ============================================================================
+pydantic>=2.6,<3
+fastapi>=0.110,<1
+uvicorn[standard]>=0.29,<1
+httpx>=0.27,<1
+python-dateutil>=2.9,<3
+orjson>=3.10,<4
+pyyaml>=6.0,<7
+
+numpy>=1.26,<2.2
+pandas>=2.1,<2.3
+scipy>=1.11,<2
+
+river>=0.21,<0.22
+stumpy>=1.12,<1.14
+ddsketch>=2.0,<3
+nats-py>=2.6,<3
+
+scikit-learn>=1.3,<1.6
+statsmodels>=0.14,<0.15
+pyod>=1.1,<3
+ruptures>=1.1,<2
+pymannkendall>=1.4,<2
+lifelines>=0.27,<0.31
+
+networkx>=3.1,<4
+shap>=0.44,<0.47
+
+# ============================================================================
+# --- forecasting/ML (optional-heavy) ---
+#   Global gradient-boosted forecasters + classical auto-forecasters + conformal
+#   bounds + (optional) deep & zero-shot foundation forecasters. CPU-capable;
+#   torch is a CPU wheel. Feature-flag the deep/foundation members on small boxes.
+# ============================================================================
+lightgbm>=4.1,<5             # M14 global workhorse forecaster (+ native quantile)
+xgboost>=2.0,<3              # M15 quantile objective for lead-time bounds
+catboost>=1.2,<2             # M16 native categorical (site/role/vpn) handling
+statsforecast>=1.7,<2        # M1-M6,M11 AutoARIMA/AutoETS/Theta/Croston/MSTL (Numba)
+mlforecast>=0.13,<1          # global ML forecasting + auto lag/rolling features
+mapie>=0.8,<0.10             # M23 conformal prediction intervals (calibrated bounds)
+scikit-survival>=0.22,<0.24  # GPL-3.0 — optional, keep out of permissive air-gap bundle; RSF/GBSA survival (lifelines is the permissive default); needs C/C++ build
+
+# deep / probabilistic forecasting + anomaly (CPU-OK; heavier wheels)
+torch>=2.1,<2.6             # CPU wheel; backbone for neural forecasters & DeepOD
+neuralforecast>=1.7,<2      # DLinear/NLinear/NHITS/DeepAR/TFT/PatchTST (M17-M22)
+deepod>=0.4,<1              # USAD/TranAD/LSTM-AE/DeepSVDD multivariate AD (#52-#58)
+
+# zero-shot foundation forecasters (open weights, local path, CPU Bolt variants)
+chronos-forecasting>=1.4,<2 # Chronos-Bolt CPU zero-shot cold-start forecaster
+
+# graph anomaly detection (heaviest optional dep: torch-geometric)
+# NOTE: torch-geometric wheels are platform/torch-version specific. The graph
+# workstream pins the exact CPU wheel in netra/analytics/requirements-graph.txt
+# and the integrator vendors it. Listed here for completeness, commented to keep
+# the default `pip install` from breaking on wheel resolution:
+# torch-geometric>=2.5,<3
+# pygod>=1.1,<2
+
+# ============================================================================
+# --- llm/rag (optional-heavy) ---
+#   Offline LLM serving client + local embeddings + vector DB + reranker +
+#   grounding. The copilot calls llama-server over an OpenAI-compatible HTTP
+#   API; if the model/server is absent, the template fallback produces the same
+#   CopilotResponse. All weights are local; no cloud.
+# ============================================================================
+llama-cpp-python>=0.2.70,<0.4   # in-process GGUF + GBNF grammar (or talk to llama-server)
+sentence-transformers>=2.6,<4   # bge-m3 / bge-small embeddings + cross-encoder reranker
+FlagEmbedding>=1.2,<2           # bge-m3 dense+sparse+ColBERT, bge-reranker-v2-m3
+qdrant-client>=1.8,<2           # vector DB client (on-disk hybrid: dense + sparse)
+bm25s>=0.1.10,<1                # pure-python BM25 sparse retrieval (fallback/aux)
+transformers>=4.40,<5           # tokenizers + HHEM-2.1 / DeBERTa-v3 NLI grounding gate
+huggingface-hub>=0.23,<1        # local snapshot loading (HF_HUB_OFFLINE=1)
+instructor>=1.2,<2              # Pydantic validation + constrained retry around the LLM
+
+# ============================================================================
+# --- dev/test ---
+# ============================================================================
+pytest>=8.0,<9
+pytest-asyncio>=0.23,<1
+ruff>=0.4,<1                 # lint + format
+mypy>=1.9,<2                 # static typing (contracts are fully typed)
+hypothesis>=6.100,<7         # property-based tests for contracts/analytics
+deepeval>=0.21,<1            # offline RAG/copilot eval (local judge)
+ragas>=0.1,<0.3              # offline faithfulness/grounding metrics (local judge)
+cyclonedx-bom>=4.0,<6        # SBOM generation for the air-gap bundle

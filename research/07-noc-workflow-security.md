@@ -218,24 +218,44 @@ Layer these (any one suffices; together they're belt-and-suspenders):
   ```
 - **No `--add-host`/public DNS; disable name resolution to the internet** (see B6.4).
 
-#### B6.2 Layer 2 — Host firewall default-DROP egress (nftables)
+#### B6.2 Layer 2 — Host firewall default-DROP egress (nftables / DOCKER-USER)
 
-Even if a container somehow had a route, the host kernel drops outbound. **Default policy DROP on OUTPUT**, allow only loopback + the internal docker subnet + (optionally) the LAN telemetry sources. nftables example:
+> **Correction — container egress lives in the FORWARD path, not OUTPUT.** A host `OUTPUT` hook only governs traffic that *originates on the host itself*. Container traffic is **routed/NATed through the Docker bridge and therefore traverses the `FORWARD` path** (`DOCKER-USER` chain in iptables) on its way out — it never hits the host `OUTPUT` hook. So an OUTPUT-only rule will **not** block a container reaching the internet. The chain that actually governs container egress is **`DOCKER-USER` (iptables)** / an **nftables `forward` hook**, evaluated *before* Docker's own NAT rules. Put the default-deny + log there (and/or enforce inside each container netns); keep the OUTPUT rule purely as defense-in-depth for host-originated traffic.
+
+The primary, authoritative control for container egress (allow intra-lab subnets first, then log + drop everything else):
 
 ```bash
-# /etc/nftables.conf  — default-deny egress, allow only loopback + internal bridge
+# iptables — DOCKER-USER is consulted BEFORE Docker's NAT/forward rules, so it governs container egress.
+iptables -I DOCKER-USER -d 172.18.0.0/16 -j RETURN        # allow intra-lab docker bridge
+iptables -I DOCKER-USER -d 10.0.0.0/8    -j RETURN        # (optional) LAN telemetry sources only
+iptables -A DOCKER-USER -j LOG  --log-prefix "EGRESS-DROP "   # log + count every blocked attempt
+iptables -A DOCKER-USER -j DROP                            # default-deny container egress
+```
+
+Equivalent nftables — a **`forward` hook** (this, not `output`, is what containers traverse), kept alongside an `output` backstop:
+
+```bash
+# /etc/nftables.conf — container egress governed in FORWARD; OUTPUT kept as host-only backstop
 table inet airgap {
-  chain output {
-    type filter hook output priority 0; policy drop;   # DEFAULT DROP all egress
-    oif "lo" accept                                     # loopback ok
-    ip daddr 172.18.0.0/16 accept                       # docker internal bridge subnet
+  chain forward {
+    type filter hook forward priority 0; policy drop;   # DEFAULT DROP forwarded (container) egress
+    ip daddr 172.18.0.0/16 accept                       # intra-lab docker bridge
     ip daddr 10.0.0.0/8 accept                          # (optional) LAN telemetry sources only
     ct state established,related accept                 # replies to allowed inbound
-    log prefix "AIRGAP-EGRESS-DROP " counter            # log + count every blocked attempt
+    log prefix "EGRESS-DROP " counter                   # log + count every blocked attempt
+  }
+  chain output {                                        # defense-in-depth: host-ORIGINATED traffic only
+    type filter hook output priority 0; policy drop;
+    oif "lo" accept
+    ip daddr 172.18.0.0/16 accept
+    ip daddr 10.0.0.0/8 accept
+    ct state established,related accept
+    log prefix "AIRGAP-EGRESS-DROP " counter
   }
 }
 ```
-Equivalent iptables: `iptables -P OUTPUT DROP` then `-A OUTPUT -o lo -j ACCEPT`, allow the docker bridge, and `-A OUTPUT -j LOG --log-prefix "AIRGAP-EGRESS-DROP "`. Note Docker manages its own iptables chains; ensure nothing flushes/reorders them or traffic could leak — the host policy DROP is the backstop. [Netdata — Docker iptables/firewall behavior](https://www.netdata.cloud/guides/docker/docker-container-cannot-connect-to-internet/) · [OneUptime — Docker can't reach internet](https://oneuptime.com/blog/post/2026-02-08-how-to-troubleshoot-docker-container-cannot-reach-internet/view)
+
+Belt-and-suspenders: also put the **copilot / LLM / RAG / analytics containers on a Docker `internal: true` network with no gateway** (see B6.1) so they have no route to an external interface in the first place — the FORWARD/DOCKER-USER rules then only ever see, and prove, that there is nothing to forward out. Note Docker manages its own iptables chains; ensure nothing flushes/reorders `DOCKER-USER` or traffic could leak. [Netdata — Docker iptables/firewall behavior](https://www.netdata.cloud/guides/docker/docker-container-cannot-connect-to-internet/) · [OneUptime — Docker can't reach internet](https://oneuptime.com/blog/post/2026-02-08-how-to-troubleshoot-docker-container-cannot-reach-internet/view)
 
 > **Pro move (verifiability):** instead of silently dropping, **route all egress to a blackhole / sinkhole and alert on every attempt**. `ip route add blackhole 0.0.0.0/0` on an isolated test netns, or point default route at an unrouted address; combine with the LOG rule above so each attempt is *counted* and visible in the demo.
 

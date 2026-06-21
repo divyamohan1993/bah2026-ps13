@@ -297,10 +297,10 @@ Containerlab pulls missing images at deploy time, so for air-gap you must **pre-
 ```bash
 # On an internet-connected staging host:
 for img in frrouting/frr:v10.3.0 ghcr.io/nokia/srlinux:latest \
-           alexei-led/pumba:latest strongswan/strongswan:latest; do
+           ghcr.io/alexei-led/pumba:latest strongswan/strongswan:latest; do
   docker pull "$img"; done
 docker save frrouting/frr:v10.3.0 ghcr.io/nokia/srlinux:latest \
-            alexei-led/pumba:latest strongswan/strongswan:latest \
+            ghcr.io/alexei-led/pumba:latest strongswan/strongswan:latest \
   | gzip > clab-images-airgap.tar.gz
 # Transfer the tarball across the air-gap, then on the offline host:
 gunzip -c clab-images-airgap.tar.gz | docker load
@@ -350,15 +350,17 @@ nodes:
   p2: { device: srlinux }      # SR Linux for premium telemetry
   pe-dc: { device: srlinux }
   pe-hub: { device: frr }
+  ce-dc: { device: frr, module: [bgp, vrf] }   # CE at the DC site (VRF corp)
   ce-br1: { device: frr, module: [bgp, vrf] }
   rr: { device: frr }
 links:
-  - { interface: [p1, p2], mpls.sr: True }
-  - { interface: [p1, pe-dc] }
-  - { interface: [p2, pe-hub] }
-  - pe-dc:                      # PE-CE in a VRF
-      ce-dc:
-      vrf: corp
+  # netlab link = two-endpoint list under `interfaces:` (plural). Short form `- [a, b]` also works.
+  - interfaces: [ p1, p2 ]      # core link
+    mpls.sr: True
+  - interfaces: [ p1, pe-dc ]   # core link
+  - interfaces: [ p2, pe-hub ]  # core link
+  - interfaces: [ ce-dc, pe-dc ] # PE-CE link, placed in a VRF on the PE side
+    vrf: corp
 # (strongSwan overlay + tc QoS + traffic/fault drivers layered on the rendered clab lab)
 ```
 

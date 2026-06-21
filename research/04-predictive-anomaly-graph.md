@@ -229,7 +229,9 @@ These are **feature engineering + detector** recipes, not new libraries. They tu
 | Time-to-impact | trend-crossing + CoxPH survival (#66) | `pymannkendall`/`scipy`, `lifelines` | Q1 "when" → lead time | sec |
 
 **One-line install set (vendor as a local wheelhouse for the air-gap):**
-`river pyod deepod pygod torch torch-geometric stumpy ruptures bayesian_changepoint_detection sranodec alibi-detect shap lifelines scikit-survival causal-learn statsmodels networkx python-igraph hdbscan eif isotree r_pca pymannkendall scipy scikit-learn` — **all BSD/MIT/Apache-2.0, all offline-installable, zero runtime network calls.** (Build the wheelhouse once with `pip download`, transfer into the enclave, `pip install --no-index --find-links`.)
+`river pyod deepod pygod torch torch-geometric stumpy ruptures bayesian_changepoint_detection sranodec alibi-detect shap lifelines causal-learn statsmodels networkx python-igraph hdbscan eif isotree r_pca pymannkendall scipy scikit-learn` — **all BSD/MIT/Apache-2.0, all offline-installable, zero runtime network calls.** Survival / Cox / time-to-event uses **`lifelines` (MIT)** as the permissive default. (Build the wheelhouse once with `pip download`, transfer into the enclave, `pip install --no-index --find-links`.)
+
+> **License note — `scikit-survival` is GPL-3.0**, *not* part of the permissive bundle above. It is **optional only**; if used it must be **isolated/segregated** (separate optional/heavy wheelhouse tier) because GPL-3.0 carries copyleft obligations if the appliance is redistributed. For the regulated air-gapped SBOM, prefer `lifelines` for CoxPH/time-to-impact and keep `scikit-survival` out of the default permissive set.
 
 ---
 

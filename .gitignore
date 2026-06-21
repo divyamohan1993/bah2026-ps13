@@ -1,0 +1,91 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.installed.cfg
+*.egg
+
+# ---- Virtual envs ----
+.venv/
+.venv-*/
+.venv-verify/          # throwaway dependency-verification venv (never commit)
+*.venv
+venv/
+env/
+ENV/
+
+# ---- Test / type / lint caches ----
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+htmlcov/
+coverage.xml
+
+# ---- Models & large ML artifacts (NEVER commit; bundled separately for air-gap) ----
+models/
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+*.ckpt
+hf_cache/
+.cache/huggingface/
+
+# ---- Vector DB / RAG storage ----
+qdrant_storage/
+qdrant_data/
+storage/
+*.faiss
+*.index
+chroma/
+
+# ---- Telemetry / time-series / data artifacts ----
+data/
+datasets/
+*.parquet
+*.jsonl
+!corpus/**/*.jsonl          # keep curated sample corpus (small, intentional)
+victoria_metrics_data/
+vm-data/
+jetstream/
+*.db
+*.sqlite
+
+# ---- Sim / lab runtime artifacts ----
+clab-*/
+*.clab.yml.bak
+sim/**/clab-*/
+.containerlab/
+*.tar.gz                    # offline image bundles / wheelhouses are not committed
+wheelhouse/
+sbom/
+*.sbom.json
+
+# ---- Logs & evidence ----
+*.log
+logs/
+airgap-evidence/
+
+# ---- Editor / OS ----
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# ---- Secrets (never commit) ----
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+secrets/

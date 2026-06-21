@@ -414,9 +414,12 @@ def on_sample(ts, util, rtt, jitter):
 nats stream add TELEMETRY --subjects "telemetry.>" \
   --storage file --retention limits --max-age 24h --replicas 1
 nats stream add ALERTS --subjects "alerts.>" \
-  --storage file --retention work --replicas 1   # work-queue, exactly-once consume
+  --storage file --retention work --replicas 1   # work-queue retention = AT-LEAST-ONCE (see note)
 nats consumer add TELEMETRY river-scorer --ack explicit --max-deliver 5
 ```
+
+> **Correction — delivery semantics.** WorkQueue retention alone is **at-least-once**, not exactly-once: a lost/dropped ack or a consumer restart between processing and ack will redeliver the message. "Exactly-once-effective" requires BOTH (a) **publisher-side dedup** — set the `Nats-Msg-Id` header on publish so JetStream rejects duplicates within the stream's duplicate window — AND (b) **double/confirmed acknowledgement** on the consumer (e.g. `AckSync`, which waits for the server to confirm the ack). Absent both, treat the bus as at-least-once and make the alert/copilot consumer **idempotent** by deduping on a stable alert key (e.g. `scenario+link+window+detector`) so redelivery is harmless.
+
 ([NATS JetStream consumers](https://docs.nats.io/nats-concepts/jetstream/consumers))
 
 ---
