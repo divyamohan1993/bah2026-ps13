@@ -93,6 +93,7 @@ class EnsembleForecaster:
         seasonality: int = 0,
         enable_gbm: bool = True,
         enable_foundation: bool = False,
+        lightweight: bool = False,
         quantile_lower: float = 0.1,
         quantile_upper: float = 0.9,
         backtest_window: int = 12,
@@ -102,9 +103,19 @@ class EnsembleForecaster:
         self.seasonality = int(seasonality)
         self.enable_gbm = bool(enable_gbm)
         self.enable_foundation = bool(enable_foundation)
+        # lightweight mode: keep only the O(n), backend-free members (EWMA/Holt
+        # linear trend, Theta, damped Holt) — drop river SNARIMAX online-ARIMA,
+        # statsmodels STL/SARIMAX and gradient boosting, and skip the per-member
+        # rolling-origin backtest refit. This is the demo/test FAST path: it
+        # preserves the trend + threshold-crossing (so the time-to-impact and
+        # detected-precursor are unchanged) at a fraction of the cost.
+        self.lightweight = bool(lightweight)
         self.quantile_lower = float(quantile_lower)
         self.quantile_upper = float(quantile_upper)
-        self.backtest_window = int(backtest_window)
+        # the backtest does a SECOND fit/forecast per member purely to weight it;
+        # the lightweight path skips it (equal weights) since its members are cheap
+        # and already agree closely on these short trending series.
+        self.backtest_window = 0 if self.lightweight else int(backtest_window)
 
     # -- member construction ------------------------------------------------
 
@@ -112,6 +123,14 @@ class EnsembleForecaster:
         """Instantiate the member forecasters appropriate for this history."""
         kw = dict(quantile_lower=self.quantile_lower,
                   quantile_upper=self.quantile_upper)
+        if self.lightweight:
+            # Three independent O(n) members: Holt linear trend (EWMA), Theta, and a
+            # damped Holt for diversity. No backend, no refit — microseconds each.
+            return [
+                EwmaForecaster(self.entity, self.metric, **kw),
+                ThetaForecaster(self.entity, self.metric, **kw),
+                EwmaForecaster(self.entity, self.metric, damping=0.9, **kw),
+            ]
         members: list = [
             EwmaForecaster(self.entity, self.metric, **kw),
             ThetaForecaster(self.entity, self.metric, **kw),

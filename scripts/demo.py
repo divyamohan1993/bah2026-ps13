@@ -291,11 +291,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--duration",
         type=float,
-        default=1200.0,
-        help="telemetry duration per scenario in seconds (default 1200).",
+        default=900.0,
+        help="telemetry duration per scenario in seconds (default 900).",
     )
     parser.add_argument(
         "--step", type=float, default=10.0, help="sample period seconds (default 10)."
+    )
+    parser.add_argument(
+        "--profile",
+        choices=("fast", "full"),
+        default="fast",
+        help="pipeline speed/fidelity profile (default fast: lightweight O(n) "
+        "forecasters + anomaly pre-screen). 'full' runs the heavy ensemble.",
     )
     parser.add_argument("--seed", type=int, default=1337, help="generator seed.")
     parser.add_argument(
@@ -320,14 +327,15 @@ def main(argv: list[str] | None = None) -> int:
     print(_bold(_cyan("\n" + _rule("═", 78))))
     print(_bold("  NETRA — air-gapped predictive NOC copilot (PS-13) — end-to-end demo"))
     print("  Source: synthetic TelemetrySource (labeled) · Copilot: template fallback")
-    print(f"  Offline · CPU-only · seed={args.seed} · duration={args.duration:.0f}s/scenario")
+    print(f"  Offline · CPU-only · seed={args.seed} · duration={args.duration:.0f}s/scenario"
+          f" · profile={args.profile}")
     print(_bold(_cyan(_rule("═", 78))))
 
     rows: list[tuple[ScenarioId, SituationReport, float]] = []
     for scen in chosen:
         # A fresh pipeline per scenario isolates each fault morphology (its own
         # incident + clean root cause), which is the clearest operator view.
-        pipe = NetraPipeline(PipelineConfig(step_seconds=args.step))
+        pipe = NetraPipeline(PipelineConfig(step_seconds=args.step, profile=args.profile))
         t0 = time.time()
         report = pipe.run_scenario(scen, seed=args.seed, duration_s=args.duration, step_s=args.step)
         elapsed = time.time() - t0

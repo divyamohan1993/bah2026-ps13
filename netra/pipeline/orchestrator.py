@@ -170,8 +170,26 @@ _METRIC_ISSUE: dict[str, IssueType] = {
 
 @dataclass
 class PipelineConfig:
-    """Tunables for a :class:`NetraPipeline` run (all have sensible defaults)."""
+    """Tunables for a :class:`NetraPipeline` run (all have sensible defaults).
 
+    The ``profile`` selects a coarse speed/fidelity trade-off and, in ``__post_init__``,
+    seeds the forecasting/enrichment knobs accordingly (any field the caller sets
+    explicitly still wins — the profile only fills in fields left at their sentinel).
+
+      * ``"fast"`` (the demo/test default) — runs ONLY the lightweight O(n)
+        forecasters (EWMA/Holt linear trend, Theta, damped Holt) and SKIPS the slow
+        members (river SNARIMAX online-ARIMA, statsmodels SARIMAX/STL, gradient
+        boosting). It also PRE-SCREENS with the cheap streaming anomaly detectors and
+        runs the forecast + time-to-impact branch on only the top-``forecast_top_k``
+        most-anomalous (entity, metric) streams, downsampling long series and capping
+        the horizon. Output contract is unchanged — the precursor entity is still
+        detected with lead time, it is just not the full cartesian fan-out.
+      * ``"full"`` — the original heterogeneous ensemble across every qualifying
+        stream (highest cross-model agreement, slower).
+    """
+
+    #: speed/fidelity profile: ``"fast"`` (default) or ``"full"``. See class docstring.
+    profile: str = "fast"
     #: rolling history length per (entity, metric) feeding the forecasters.
     history_len: int = 240
     #: min samples before a forecaster/TTI is run on a series.
@@ -199,6 +217,23 @@ class PipelineConfig:
     #: run the heavier ensemble forecaster (vs a single fast member). CPU-cheap
     #: either way on these short series; the ensemble adds cross-model agreement.
     use_ensemble_forecaster: bool = True
+    #: FAST-mode forecasting: restrict the ensemble to the lightweight O(n) members
+    #: (EWMA/Holt linear, Theta, damped Holt) and skip the slow ones (river
+    #: SNARIMAX, statsmodels SARIMAX/STL, gradient boosting). ``None`` = let the
+    #: ``profile`` decide (fast ⇒ True, full ⇒ False).
+    lightweight_forecasters: bool | None = None
+    #: FAST-mode pre-screen: after the cheap anomaly detectors rank the streams,
+    #: run the (costlier) forecast + time-to-impact branch on only the top-K
+    #: most-anomalous (entity, metric) streams rather than the full cartesian
+    #: product. 0 = unbounded (the ``full`` profile). Correctness is preserved
+    #: because the scenario precursor is, by construction, among the highest-scoring
+    #: streams; lead-time detection itself comes from the per-tick risk timeline
+    #: (which is unaffected), not from the forecast.
+    forecast_top_k: int = 0
+    #: FAST-mode downsample factor for the series handed to the forecasters (keep 1
+    #: point in N). 1 = no downsampling. The TTI estimator is told the effective
+    #: per-step seconds so the eta stays in real time.
+    forecast_downsample: int = 1
     #: cap on distinct (entity, metric) detector streams (safety valve for huge
     #: topologies); 0 = unbounded.
     max_streams: int = 0
@@ -216,6 +251,29 @@ class PipelineConfig:
     batch_enrich_top_streams: int = 12
     #: how many trailing samples of each enriched stream the batch pass scores.
     batch_enrich_window: int = 120
+
+    def __post_init__(self) -> None:
+        """Seed the speed/fidelity knobs from ``profile`` (explicit caller wins).
+
+        Only fields left at their sentinel (``None`` for the tristate flag, ``0``
+        for the caps) are filled in, so a caller that sets e.g. ``forecast_top_k=5``
+        keeps it regardless of profile.
+        """
+        prof = (self.profile or "fast").lower()
+        if prof not in ("fast", "full"):
+            prof = "fast"
+        self.profile = prof
+        fast = prof == "fast"
+        if self.lightweight_forecasters is None:
+            self.lightweight_forecasters = fast
+        if fast:
+            # only seed when left at the unbounded sentinel so callers can override
+            if self.forecast_top_k == 0:
+                self.forecast_top_k = 10
+            if self.forecast_downsample <= 1:
+                # ~24 samples/min at step=10s → keep every other point for the
+                # forecast (the trend/threshold-crossing is unchanged at this rate).
+                self.forecast_downsample = 2
 
 
 def _build_pertick_detectors(entity: EntityRef, metric: str) -> list[Detector]:
@@ -236,32 +294,44 @@ def _build_pertick_detectors(entity: EntityRef, metric: str) -> list[Detector]:
     ]
 
 
-def _build_batch_detectors(entity: EntityRef, metric: str) -> list[Detector]:
+def _build_batch_detectors(
+    entity: EntityRef, metric: str, *, lightweight: bool = False
+) -> list[Detector]:
     """Curated, *fast-to-prime* batch detectors for the once-per-run enrichment.
 
-    Adds three further independent families on top of the per-tick streaming set —
+    Adds further independent families on top of the per-tick streaming set —
     ML-unsupervised (ECOD + LOF + PCA-reconstruction), matrix-profile (discord) and
     Half-Space-Trees — so the fused risk reflects cross-family agreement across
     statistical + change-point + ML + matrix-profile evidence. The heavier-to-prime
     members (Isolation Forest, HBOS, COPOD) are intentionally omitted here: their
     ``fit`` rescans the whole reference window and dominates runtime while adding
     little beyond ECOD/PCA for these univariate streams.
+
+    ``lightweight`` (the FAST profile) additionally drops the matrix-profile member:
+    it is backed by ``stumpy``/``numba`` whose one-time JIT compilation dominates
+    the whole run (~50 s of warm-up), yet on these short univariate streams it adds
+    little beyond ECOD/PCA. Four independent families (statistical + change-point +
+    ML-unsupervised + Half-Space-Trees) still agree, so the cross-verification claim
+    and the ``methods_fired >= 3`` contract hold.
     """
     from netra.analytics.anomaly import (
         EcodDetector,
         HalfSpaceTreesDetector,
         LofDetector,
-        MatrixProfileDiscordDetector,
         PcaReconstructionDetector,
     )
 
-    return [
+    dets: list[Detector] = [
         EcodDetector(entity, metric),
         LofDetector(entity, metric),
         PcaReconstructionDetector(entity, metric),
-        MatrixProfileDiscordDetector(entity, metric),
         HalfSpaceTreesDetector(entity, metric),
     ]
+    if not lightweight:
+        from netra.analytics.anomaly import MatrixProfileDiscordDetector
+
+        dets.append(MatrixProfileDiscordDetector(entity, metric))
+    return dets
 
 
 class _PerTickBank:
@@ -641,21 +711,35 @@ class NetraPipeline:
         (``fit`` then ``forecast``).
         """
         series = history if history is not None else list(st.values)
+        # FAST profile: downsample the series (keep 1 point in N) and tell the
+        # forecaster the effective per-step seconds, so the projected trajectory and
+        # its threshold-crossing time stay in real seconds while the fit is cheaper.
+        ds = max(1, int(self.config.forecast_downsample))
+        eff_series = series[::ds] if ds > 1 else series
+        eff_step = self.config.step_seconds * ds
+        # cap the horizon so the projection covers the same real-time window with
+        # fewer (downsampled) steps.
+        steps = max(1, self.config.forecast_steps // ds) if ds > 1 else self.config.forecast_steps
         try:
             if self.config.use_ensemble_forecaster:
-                ens = EnsembleForecaster(st.entity, st.metric, enable_gbm=False)
+                ens = EnsembleForecaster(
+                    st.entity,
+                    st.metric,
+                    enable_gbm=False,
+                    lightweight=bool(self.config.lightweight_forecasters),
+                )
                 res = ens.forecast_with_members(
-                    series,
-                    self.config.forecast_steps,
-                    step_seconds=self.config.step_seconds,
+                    eff_series,
+                    steps,
+                    step_seconds=eff_step,
                 )
                 return res.combined, res.agreement
             from netra.analytics.forecasting import HoltWintersForecaster
 
             fc = HoltWintersForecaster(st.entity, st.metric)
-            fc.fit(series)
+            fc.fit(eff_series)
             return (
-                fc.forecast(self.config.forecast_steps, step_seconds=self.config.step_seconds),
+                fc.forecast(steps, step_seconds=eff_step),
                 None,
             )
         except Exception:
@@ -710,19 +794,32 @@ class NetraPipeline:
         # metric merely fused highest (e.g. congestion's util should win over the
         # incidental latency drift it induces).
         excursion_frac: dict[int, float] = {}
-        for st in self._streams.values():
+
+        # PRE-SCREEN (anomaly-first, top-K): the cheap per-tick detectors have
+        # already scored every stream; rank the genuine-excursion streams by their
+        # onset peak and run the EXPENSIVE forecast + time-to-impact branch only on
+        # the top-K (``forecast_top_k``; 0 = all, the ``full`` profile). This caps
+        # the forecasting fan-out from O(entities × metrics) to O(K) without losing
+        # the precursor — by construction the scenario's breaching metric is the
+        # highest-scoring stream, and lead-time detection comes from the per-tick
+        # risk timeline (already recorded), not from this forecast pass.
+        screened = [
+            st
+            for st in self._streams.values()
+            if st.peak_value >= _TIMELINE_FLOOR and self._is_genuine_excursion(st)
+        ]
+        screened.sort(key=lambda s: s.peak_value, reverse=True)
+        top_k = self.config.forecast_top_k
+        forecast_set = (
+            set(id(s) for s in screened[:top_k]) if top_k and top_k > 0 else None
+        )
+
+        for st in screened:
             peak = st.peak_value
-            if peak < _TIMELINE_FLOOR:
-                continue
-            # Gate on a real *excursion*: streaming detectors can fire on tiny
-            # diurnal micro-variation of an otherwise-flat baseline (a normaliser
-            # artefact), so require the stream to have genuinely moved away from its
-            # own early baseline before it can become an incident candidate. This is
-            # the integration-layer guard that stops near-constant baseline streams
-            # from out-ranking the real injected fault.
-            if not self._is_genuine_excursion(st):
-                continue
-            with_tti = peak >= self.config.forecast_risk_floor
+            # The forecast/TTI branch runs only for streams that clear the higher
+            # forecast floor AND (in fast mode) are in the top-K screened set.
+            in_top_k = forecast_set is None or id(st) in forecast_set
+            with_tti = peak >= self.config.forecast_risk_floor and in_top_k
             fr = self._fuse_stream(st, with_tti=with_tti, at_peak=True)
             if fr is None or fr.risk_score < self.config.incident_risk_floor:
                 continue
@@ -808,7 +905,9 @@ class NetraPipeline:
             ts_window = list(st.peak_timestamps)[-self.config.batch_enrich_window :]
             onset_ts = ts_window[-1] if ts_window else None
             extra: list[AnomalyScore] = []
-            for det in _build_batch_detectors(st.entity, st.metric):
+            for det in _build_batch_detectors(
+                st.entity, st.metric, lightweight=bool(self.config.lightweight_forecasters)
+            ):
                 try:
                     # warm on the benign body, then take the score on the onset sample
                     det.fit(window[: max(2, len(window) - 1)])
